@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "190210100693",
+    "project_id": "sobatgula",
+    "storage_bucket": "sobatgula.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:190210100693:android:e24b032430d93f4168015c",
+        "android_client_info": {
+          "package_name": "com.example.diabetes_app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBE-POACNrmdxnvb4Bc5paGxyhareamDg8"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

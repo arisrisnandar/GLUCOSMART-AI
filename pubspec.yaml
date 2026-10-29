@@ -1,0 +1,57 @@
+name: diabetes_app
+description: "Aplikasi Telefarmasi Diabetes"
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: ^3.9.2
+
+dependencies:
+  flutter:
+    sdk: flutter
+  # State management
+  flutter_riverpod: ^2.6.1
+  # HTTP Client
+  dio: ^5.7.0
+  # Secure storage (simpan JWT token)
+  flutter_secure_storage: ^9.2.2
+  # Navigation
+  go_router: ^14.6.2
+  # Chart / grafik kesehatan
+  fl_chart: ^0.69.0
+  # Format tanggal
+  intl: ^0.20.2
+  # Shimmer loading effect
+  shimmer: ^3.0.0
+  # Icon bawaan Flutter
+  cupertino_icons: ^1.0.8
+  font_awesome_flutter: ^10.7.0  # Opsional, untuk icon medis yang lebih lengkap
+  path_provider: ^2.1.4
+  open_file: ^3.5.8
+  google_fonts: ^6.2.1
+  url_launcher: ^6.3.0    # untuk buka YouTube & PDF
+  file_picker: ^8.1.2     # untuk pilih file poster/pdf
+  firebase_core: ^3.6.0
+  firebase_messaging: ^15.1.3
+  flutter_local_notifications: ^17.2.2
+
+  
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^5.0.0
+  flutter_launcher_icons: ^0.14.1
+
+flutter_launcher_icons:
+  android: true
+  ios: true
+  image_path: "assets/icon/app_icon1.png"
+  min_sdk_android: 21
+  adaptive_icon_background: "#FFFFFF" 
+  adaptive_icon_foreground: "assets/icon/app_icon1.png"
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/icon/
+  
