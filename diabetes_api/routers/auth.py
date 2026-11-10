@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, EmailStr, Field
 from typing import Optional
 from datetime import datetime, timedelta, timezone
 from jose import JWTError, jwt
@@ -22,12 +22,12 @@ oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login")
 
 # ── Schemas ────────────────────────────────────────────────
 class RegisterRequest(BaseModel):
-    name:       str
-    email:      EmailStr
-    phone:      Optional[str] = None
-    password:   str
-    role:       str
-    gender:     Optional[str] = 'L'
+    name:         str
+    email:        EmailStr
+    phone:        Optional[str] = None
+    password:     str
+    role:         str
+    gender:       Optional[str] = Field(default='L')  # Nilai default yang eksplisit ditambahkan
 
     # ── Dokter ──────────────────────────────────────────
     specialization: Optional[str] = None   # spesialisasi dokter
@@ -51,12 +51,12 @@ class LoginResponse(BaseModel):
     name:         str
 
 class UserOut(BaseModel):
-    id:         int
-    name:       str
-    email:      str
-    phone:      Optional[str] = None
-    role:       str
-    is_active:  bool
+    id:           int
+    name:         str
+    email:        str
+    phone:        Optional[str] = None
+    role:         str
+    is_active:    bool
 
     class Config:
         from_attributes = True
@@ -111,7 +111,7 @@ def register(req: RegisterRequest, db: Session = Depends(get_db)):
     # Validasi field wajib per role
     if req.role == "dokter":
         missing = []
-        if not req.nik:             missing.append("NIK")
+        if not req.nik:              missing.append("NIK")
         if not req.str_number:      missing.append("Nomor STR")
         if not req.sip_number:      missing.append("Nomor SIP")
         if missing:
@@ -119,7 +119,7 @@ def register(req: RegisterRequest, db: Session = Depends(get_db)):
 
     elif req.role == "apoteker":
         missing = []
-        if not req.nik:             missing.append("NIK")
+        if not req.nik:              missing.append("NIK")
         if not req.stra_number:     missing.append("Nomor STRA")
         if not req.sipa_number:     missing.append("Nomor SIPA")
         if missing:
