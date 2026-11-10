@@ -11,10 +11,19 @@ _raw_credentials_path = os.getenv(
     "sobatgula-firebase-adminsdk-fbsvc-e2f7cdc8f7.json"
 )
 
-# Validasi Path Traversal: pastikan file kredensial berada di dalam direktori aplikasi/proyek
-CREDENTIALS_FILE = os.path.abspath(os.path.join(BASE_DIR, _raw_credentials_path))
-if not CREDENTIALS_FILE.startswith(BASE_DIR):
+# Validasi Path Traversal tingkat lanjut menggunakan os.path.commonpath
+_resolved_base = os.path.abspath(BASE_DIR)
+# Gabungkan dengan base path lalu ambil absolute path-nya
+_target_path = os.path.abspath(os.path.join(_resolved_base, _raw_credentials_path))
+
+try:
+    # Memastikan path tujuan benar-benar berada di dalam sub-pohon BASE_DIR
+    if os.path.commonpath([_resolved_base, _target_path]) != _resolved_base:
+        raise ValueError("Path Traversal terdeteksi")
+except Exception:
     raise ValueError("Keamanan Terdeteksi: Path kredensial Firebase berada di luar direktori yang diizinkan.")
+
+CREDENTIALS_FILE = _target_path
 
 _cached: dict = {"token": None, "expires_at": 0, "project_id": None}
 
