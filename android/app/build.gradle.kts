@@ -31,16 +31,21 @@ android {
     }
 
     buildTypes {
-        release {
-            // Mengaktifkan obfuscation dan minifikasi kode (ProGuard/R8)
-            isMinifyEnabled = true         
-            // Menghapus resource yang tidak digunakan untuk memperkecil ukuran APK/AAB
-            isShrinkResources = true        
-
+        getByName("release") {
+            // 1. Aktifkan Minify (ProGuard/R8) untuk kode Java/Kotlin
+            isMinifyEnabled = true
+            
+            // 2. Aktifkan Shrink Resources (Hapus resource yang tidak terpakai)
+            isShrinkResources = true
+            
+            // 3. Atur file aturan ProGuard
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
+            
+            // 4. Opsional: Tanda tangan rilis (jika belum dikonfigurasi di tempat lain)
+            // signingConfig = signingConfigs.getByName("release")
         }
     }
 
