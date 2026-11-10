@@ -256,12 +256,12 @@ def get_food_database(
     search: Optional[str] = Query(None, max_length=50),
     current_user: User = Depends(get_current_user)
 ):
-    # Validasi dan batasi pencarian untuk mencegah eksploitasi parameter loop (Unchecked Input For Loop Condition)
+    # Validasi dan batasi panjang input pencarian untuk mencegah serangan DoS / Unchecked Input For Loop Condition
     if search:
         search_lower = search.lower().strip()
         filtered = [f for f in FOOD_DATABASE if search_lower in f["name"].lower()]
-        return filtered[:50] # batasi hasil maksimal 50 item
-    return FOOD_DATABASE[:100] # batasi default maksimal 100 item
+        return filtered[:50] # Batasi hasil maksimal 50 item
+    return FOOD_DATABASE[:100] # Batasi default maksimal 100 item
 
 @router.get("/entries")
 def get_diet_entries(
