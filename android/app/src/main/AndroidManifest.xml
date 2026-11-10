@@ -10,6 +10,8 @@
         android:label="DIACARE-AI"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher"
+        android:allowBackup="false"
+        android:fullBackupContent="false"
         android:requestLegacyExternalStorage="true">
         <activity
             android:name=".MainActivity"
@@ -61,12 +63,12 @@
             <data android:mimeType="application/pdf"/>
         </intent>
         <intent>
-        <action android:name="android.intent.action.VIEW"/>
-        <data android:scheme="https"/>
-    </intent>
-    <intent>
-        <action android:name="android.intent.action.VIEW"/>
-        <data android:scheme="http"/>
-    </intent>
+            <action android:name="android.intent.action.VIEW"/>
+            <data android:scheme="https"/>
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.VIEW"/>
+            <data android:scheme="http"/>
+        </intent>
     </queries>
 </manifest>
