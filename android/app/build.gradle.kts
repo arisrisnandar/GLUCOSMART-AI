@@ -32,19 +32,25 @@ android {
 
     buildTypes {
         getByName("release") {
-            // 1. Aktifkan Minify (ProGuard/R8) untuk kode Java/Kotlin
+            // 1. Matikan mode debug secara eksplisit untuk keamanan
+            isDebuggable = false
+            
+            // 2. Aktifkan Minify (ProGuard/R8) untuk kode Java/Kotlin
             isMinifyEnabled = true
             
-            // 2. Aktifkan Shrink Resources (Hapus resource yang tidak terpakai)
+            // 3. Aktifkan Shrink Resources (Hapus resource yang tidak terpakai)
             isShrinkResources = true
             
-            // 3. Atur file aturan ProGuard
+            // 4. Optimasi PNG
+            isCrunchPngs = true
+            
+            // 5. Atur file aturan ProGuard
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
             
-            // 4. Opsional: Tanda tangan rilis (jika belum dikonfigurasi di tempat lain)
+            // 6. Tanda tangan rilis (Pastikan ini dikonfigurasi dengan benar)
             // signingConfig = signingConfigs.getByName("release")
         }
     }
