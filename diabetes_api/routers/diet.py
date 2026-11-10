@@ -1,48 +1,45 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from sqlalchemy import desc, func as sqlfunc
-from pydantic import BaseModel
-from typing import Optional, List
+from pydantic import BaseModel, Field, constr
+from typing import Optional, List, Dict, Any
 from datetime import date, timedelta
+from collections import defaultdict
 from database import get_db
 from models.db_models import Patient, DietEntry, User
 from routers.auth import get_current_user
 
 router = APIRouter()
 
-
 class DietEntryCreate(BaseModel):
-    entry_date:  Optional[date]  = None   # default: hari ini
-    meal_type:   str                       # sarapan|makan_siang|makan_malam|snack
-    food_name:   str
-    portion:     Optional[str]   = None
-    calories:    int             = 0
-    carbs_g:     Optional[float] = None
-    protein_g:   Optional[float] = None
-    fat_g:       Optional[float] = None
-    gi_category: Optional[str]  = None    # rendah|sedang|tinggi
-    notes:       Optional[str]  = None
-
+    entry_date:  Optional[date]  = None
+    meal_type:   str             = Field(..., max_length=20)
+    food_name:   str             = Field(..., max_length=100)
+    portion:     Optional[str]   = Field(None, max_length=50)
+    calories:    int             = Field(0, ge=0, le=10000)
+    carbs_g:     Optional[float] = Field(None, ge=0, le=1000)
+    protein_g:   Optional[float] = Field(None, ge=0, le=1000)
+    fat_g:       Optional[float] = Field(None, ge=0, le=1000)
+    gi_category: Optional[str]   = Field(None, max_length=20)
+    notes:       Optional[str]   = Field(None, max_length=500)
 
 MEAL_ORDER = {"sarapan": 1, "makan_siang": 2, "makan_malam": 3, "snack": 4}
 
-# Referensi makanan Indonesia (nama, kalori per porsi, karbohidrat, protein, lemak, gi)
 FOOD_DATABASE = [
-    # Makanan pokok
-    {"name": "Nasi Putih",         "portion": "1 centong (100g)", "calories": 175, "carbs_g": 38.9, "protein_g": 3.5,  "fat_g": 0.4,  "gi_category": "tinggi"},
-    {"name": "Nasi Merah",         "portion": "1 centong (100g)", "calories": 162, "carbs_g": 34.0, "protein_g": 3.5,  "fat_g": 1.2,  "gi_category": "sedang"},
+    {"name": "Nasi Putih", "portion": "1 centong (100g)", "calories": 175, "carbs_g": 38.9, "protein_g": 3.5, "fat_g": 0.4, "gi_category": "tinggi"},
+    {"name": "Nasi Merah", "portion": "1 centong (100g)", "calories": 162, "carbs_g": 34.0, "protein_g": 3.5, "fat_g": 1.2, "gi_category": "sedang"},
     {"name": "Nasi Uduk", "portion": "1 piring (200g)", "calories": 260, "carbs_g": 45.0, "protein_g": 5.0, "fat_g": 6.0, "gi_category": "tinggi"},
     {"name": "Nasi Kuning", "portion": "1 piring (200g)", "calories": 270, "carbs_g": 46.0, "protein_g": 5.0, "fat_g": 7.0, "gi_category": "tinggi"},
-    {"name": "Nasi Putih (1 piring)","portion": "1 piring (200g)","calories": 350, "carbs_g": 77.8, "protein_g": 7.0,  "fat_g": 0.8,  "gi_category": "tinggi"},
-    {"name": "Roti Tawar Putih",   "portion": "2 lembar (60g)",  "calories": 160, "carbs_g": 30.0, "protein_g": 5.0,  "fat_g": 2.0,  "gi_category": "tinggi"},
-    {"name": "Roti Gandum",        "portion": "2 lembar (60g)",  "calories": 140, "carbs_g": 26.0, "protein_g": 6.0,  "fat_g": 2.0,  "gi_category": "sedang"},
-    {"name": "Mie Goreng",         "portion": "1 porsi (200g)",  "calories": 330, "carbs_g": 42.0, "protein_g": 8.0,  "fat_g": 14.0, "gi_category": "tinggi"},
+    {"name": "Nasi Putih (1 piring)", "portion": "1 piring (200g)", "calories": 350, "carbs_g": 77.8, "protein_g": 7.0, "fat_g": 0.8, "gi_category": "tinggi"},
+    {"name": "Roti Tawar Putih", "portion": "2 lembar (60g)", "calories": 160, "carbs_g": 30.0, "protein_g": 5.0, "fat_g": 2.0, "gi_category": "tinggi"},
+    {"name": "Roti Gandum", "portion": "2 lembar (60g)", "calories": 140, "carbs_g": 26.0, "protein_g": 6.0, "fat_g": 2.0, "gi_category": "sedang"},
+    {"name": "Mie Goreng", "portion": "1 porsi (200g)", "calories": 330, "carbs_g": 42.0, "protein_g": 8.0, "fat_g": 14.0, "gi_category": "tinggi"},
     {"name": "Mie Ayam", "portion": "1 porsi", "calories": 300, "carbs_g": 45.0, "protein_g": 10.0, "fat_g": 10.0, "gi_category": "tinggi"},
     {"name": "Mie Rebus", "portion": "1 porsi", "calories": 280, "carbs_g": 42.0, "protein_g": 8.0, "fat_g": 9.0, "gi_category": "tinggi"},
     {"name": "Indomie Goreng", "portion": "1 bungkus", "calories": 350, "carbs_g": 50.0, "protein_g": 8.0, "fat_g": 14.0, "gi_category": "tinggi"},
     {"name": "Kwetiau Goreng", "portion": "1 porsi", "calories": 320, "carbs_g": 45.0, "protein_g": 9.0, "fat_g": 12.0, "gi_category": "tinggi"},
-    {"name": "Kentang Rebus",      "portion": "1 buah (150g)",   "calories": 130, "carbs_g": 30.0, "protein_g": 3.0,  "fat_g": 0.1,  "gi_category": "sedang"},
-    {"name": "Ubi Jalar Rebus",    "portion": "1 buah (150g)",   "calories": 145, "carbs_g": 33.0, "protein_g": 2.5,  "fat_g": 0.1,  "gi_category": "rendah"},
+    {"name": "Kentang Rebus", "portion": "1 buah (150g)", "calories": 130, "carbs_g": 30.0, "protein_g": 3.0, "fat_g": 0.1, "gi_category": "sedang"},
+    {"name": "Ubi Jalar Rebus", "portion": "1 buah (150g)", "calories": 145, "carbs_g": 33.0, "protein_g": 2.5, "fat_g": 0.1, "gi_category": "rendah"},
     {"name": "Lontong", "portion": "1 buah (150g)", "calories": 130, "carbs_g": 28.0, "protein_g": 3.0, "fat_g": 0.5, "gi_category": "sedang"},
     {"name": "Ketupat", "portion": "1 buah (150g)", "calories": 160, "carbs_g": 35.0, "protein_g": 4.0, "fat_g": 0.5, "gi_category": "sedang"},
     {"name": "Bubur Ayam", "portion": "1 mangkuk", "calories": 165, "carbs_g": 25.0, "protein_g": 8.0, "fat_g": 5.0, "gi_category": "sedang"},
@@ -69,17 +66,15 @@ FOOD_DATABASE = [
     {"name": "Roti Canai", "portion": "1 lembar", "calories": 300, "carbs_g": 42.0, "protein_g": 6.0, "fat_g": 12.0, "gi_category": "tinggi"},
     {"name": "Oatmeal", "portion": "1 mangkuk (40g kering)", "calories": 150, "carbs_g": 27.0, "protein_g": 5.0, "fat_g": 3.0, "gi_category": "rendah"},
     {"name": "Granola", "portion": "1/2 cup (50g)", "calories": 220, "carbs_g": 32.0, "protein_g": 5.0, "fat_g": 8.0, "gi_category": "sedang"},
-
-    # Lauk protein
-    {"name": "Ayam Goreng",        "portion": "1 potong (80g)",  "calories": 246, "carbs_g": 5.0,  "protein_g": 21.0, "fat_g": 16.0, "gi_category": "rendah"},
-    {"name": "Ayam Bakar",         "portion": "1 potong (80g)",  "calories": 180, "carbs_g": 2.0,  "protein_g": 25.0, "fat_g": 8.0,  "gi_category": "rendah"},
-    {"name": "Ikan Goreng",        "portion": "1 ekor (100g)",   "calories": 196, "carbs_g": 4.0,  "protein_g": 22.0, "fat_g": 11.0, "gi_category": "rendah"},
-    {"name": "Ikan Bakar",         "portion": "1 ekor (100g)",   "calories": 150, "carbs_g": 0.0,  "protein_g": 25.0, "fat_g": 5.0,  "gi_category": "rendah"},
-    {"name": "Telur Goreng",       "portion": "1 butir (55g)",   "calories": 108, "carbs_g": 0.5,  "protein_g": 7.5,  "fat_g": 8.5,  "gi_category": "rendah"},
-    {"name": "Telur Rebus",        "portion": "1 butir (55g)",   "calories": 78,  "carbs_g": 0.6,  "protein_g": 6.3,  "fat_g": 5.3,  "gi_category": "rendah"},
-    {"name": "Tempe Goreng",       "portion": "2 potong (50g)",  "calories": 100, "carbs_g": 6.5,  "protein_g": 9.0,  "fat_g": 5.0,  "gi_category": "rendah"},
-    {"name": "Tahu Goreng",        "portion": "2 potong (100g)", "calories": 117, "carbs_g": 4.0,  "protein_g": 8.0,  "fat_g": 8.0,  "gi_category": "rendah"},
-    {"name": "Daging Sapi",        "portion": "1 porsi (80g)",   "calories": 170, "carbs_g": 0.0,  "protein_g": 22.0, "fat_g": 9.0,  "gi_category": "rendah"},
+    {"name": "Ayam Goreng", "portion": "1 potong (80g)", "calories": 246, "carbs_g": 5.0, "protein_g": 21.0, "fat_g": 16.0, "gi_category": "rendah"},
+    {"name": "Ayam Bakar", "portion": "1 potong (80g)", "calories": 180, "carbs_g": 2.0, "protein_g": 25.0, "fat_g": 8.0, "gi_category": "rendah"},
+    {"name": "Ikan Goreng", "portion": "1 ekor (100g)", "calories": 196, "carbs_g": 4.0, "protein_g": 22.0, "fat_g": 11.0, "gi_category": "rendah"},
+    {"name": "Ikan Bakar", "portion": "1 ekor (100g)", "calories": 150, "carbs_g": 0.0, "protein_g": 25.0, "fat_g": 5.0, "gi_category": "rendah"},
+    {"name": "Telur Goreng", "portion": "1 butir (55g)", "calories": 108, "carbs_g": 0.5, "protein_g": 7.5, "fat_g": 8.5, "gi_category": "rendah"},
+    {"name": "Telur Rebus", "portion": "1 butir (55g)", "calories": 78, "carbs_g": 0.6, "protein_g": 6.3, "fat_g": 5.3, "gi_category": "rendah"},
+    {"name": "Tempe Goreng", "portion": "2 potong (50g)", "calories": 100, "carbs_g": 6.5, "protein_g": 9.0, "fat_g": 5.0, "gi_category": "rendah"},
+    {"name": "Tahu Goreng", "portion": "2 potong (100g)", "calories": 117, "carbs_g": 4.0, "protein_g": 8.0, "fat_g": 8.0, "gi_category": "rendah"},
+    {"name": "Daging Sapi", "portion": "1 porsi (80g)", "calories": 170, "carbs_g": 0.0, "protein_g": 22.0, "fat_g": 9.0, "gi_category": "rendah"},
     {"name": "Rendang", "portion": "100g", "calories": 350, "carbs_g": 5.0, "protein_g": 20.0, "fat_g": 28.0, "gi_category": "rendah"},
     {"name": "Opor Ayam", "portion": "1 porsi", "calories": 280, "carbs_g": 6.0, "protein_g": 18.0, "fat_g": 22.0, "gi_category": "rendah"},
     {"name": "Gulai Ayam", "portion": "1 porsi", "calories": 320, "carbs_g": 8.0, "protein_g": 20.0, "fat_g": 25.0, "gi_category": "rendah"},
@@ -113,11 +108,9 @@ FOOD_DATABASE = [
     {"name": "Oncom Goreng", "portion": "100g", "calories": 115, "carbs_g": 10.0, "protein_g": 10.0, "fat_g": 4.0, "gi_category": "rendah"},
     {"name": "Nugget Ayam", "portion": "5 potong (100g)", "calories": 250, "carbs_g": 14.0, "protein_g": 14.0, "fat_g": 15.0, "gi_category": "sedang"},
     {"name": "Sosis Sapi Goreng", "portion": "2 buah (80g)", "calories": 240, "carbs_g": 8.0, "protein_g": 10.0, "fat_g": 19.0, "gi_category": "sedang"},
-
-    # Sayuran
-    {"name": "Sayur Bayam",        "portion": "1 mangkok (100g)","calories": 22,  "carbs_g": 3.5,  "protein_g": 2.3,  "fat_g": 0.3,  "gi_category": "rendah"},
-    {"name": "Tumis Kangkung",     "portion": "1 porsi (100g)",  "calories": 45,  "carbs_g": 5.0,  "protein_g": 2.5,  "fat_g": 2.0,  "gi_category": "rendah"},
-    {"name": "Sayur Sop",          "portion": "1 mangkok (200g)","calories": 80,  "carbs_g": 12.0, "protein_g": 4.0,  "fat_g": 2.0,  "gi_category": "rendah"},
+    {"name": "Sayur Bayam", "portion": "1 mangkok (100g)", "calories": 22, "carbs_g": 3.5, "protein_g": 2.3, "fat_g": 0.3, "gi_category": "rendah"},
+    {"name": "Tumis Kangkung", "portion": "1 porsi (100g)", "calories": 45, "carbs_g": 5.0, "protein_g": 2.5, "fat_g": 2.0, "gi_category": "rendah"},
+    {"name": "Sayur Sop", "portion": "1 mangkok (200g)", "calories": 80, "carbs_g": 12.0, "protein_g": 4.0, "fat_g": 2.0, "gi_category": "rendah"},
     {"name": "Sayur Asem", "portion": "1 mangkuk", "calories": 80, "carbs_g": 12.0, "protein_g": 3.0, "fat_g": 2.0, "gi_category": "rendah"},
     {"name": "Sayur Lodeh", "portion": "1 mangkuk", "calories": 150, "carbs_g": 10.0, "protein_g": 4.0, "fat_g": 10.0, "gi_category": "rendah"},
     {"name": "Capcay", "portion": "1 porsi", "calories": 120, "carbs_g": 15.0, "protein_g": 5.0, "fat_g": 5.0, "gi_category": "rendah"},
@@ -135,8 +128,6 @@ FOOD_DATABASE = [
     {"name": "Karedok", "portion": "1 porsi", "calories": 190, "carbs_g": 18.0, "protein_g": 6.0, "fat_g": 11.0, "gi_category": "rendah"},
     {"name": "Rujak Cingur", "portion": "1 porsi", "calories": 320, "carbs_g": 35.0, "protein_g": 12.0, "fat_g": 15.0, "gi_category": "sedang"},
     {"name": "Asinan Betawi", "portion": "1 porsi", "calories": 180, "carbs_g": 28.0, "protein_g": 4.0, "fat_g": 6.0, "gi_category": "sedang"},
-
-    # Makanan Berkuah
     {"name": "Bakso", "portion": "1 mangkuk", "calories": 200, "carbs_g": 20.0, "protein_g": 10.0, "fat_g": 8.0, "gi_category": "sedang"},
     {"name": "Soto Ayam", "portion": "1 mangkuk", "calories": 180, "carbs_g": 15.0, "protein_g": 12.0, "fat_g": 8.0, "gi_category": "rendah"},
     {"name": "Soto Betawi", "portion": "1 mangkuk", "calories": 300, "carbs_g": 12.0, "protein_g": 15.0, "fat_g": 20.0, "gi_category": "rendah"},
@@ -154,8 +145,6 @@ FOOD_DATABASE = [
     {"name": "Garang Asem Ayam", "portion": "1 mangkuk", "calories": 200, "carbs_g": 6.0, "protein_g": 18.0, "fat_g": 12.0, "gi_category": "rendah"},
     {"name": "Sayur Bening Bayam", "portion": "1 mangkuk", "calories": 45, "carbs_g": 5.0, "protein_g": 2.5, "fat_g": 0.5, "gi_category": "rendah"},
     {"name": "Soto Banjar", "portion": "1 mangkuk", "calories": 240, "carbs_g": 22.0, "protein_g": 14.0, "fat_g": 10.0, "gi_category": "sedang"},
-
-    #Jajanan
     {"name": "Martabak Manis", "portion": "1 potong", "calories": 400, "carbs_g": 50.0, "protein_g": 6.0, "fat_g": 18.0, "gi_category": "tinggi"},
     {"name": "Martabak Telur", "portion": "1 potong", "calories": 350, "carbs_g": 30.0, "protein_g": 12.0, "fat_g": 20.0, "gi_category": "tinggi"},
     {"name": "Pisang Goreng", "portion": "2 buah", "calories": 200, "carbs_g": 30.0, "protein_g": 2.0, "fat_g": 8.0, "gi_category": "tinggi"},
@@ -185,13 +174,11 @@ FOOD_DATABASE = [
     {"name": "Kroket Kentang", "portion": "2 buah", "calories": 200, "carbs_g": 22.0, "protein_g": 5.0, "fat_g": 11.0, "gi_category": "sedang"},
     {"name": "Tahu Gejrot", "portion": "1 porsi", "calories": 140, "carbs_g": 12.0, "protein_g": 7.0, "fat_g": 7.0, "gi_category": "rendah"},
     {"name": "Mie Lidi Pedas", "portion": "1 bungkus (50g)", "calories": 250, "carbs_g": 30.0, "protein_g": 4.0, "fat_g": 13.0, "gi_category": "tinggi"},
-
-    # Buah
-    {"name": "Pisang",             "portion": "1 buah (100g)",   "calories": 89,  "carbs_g": 23.0, "protein_g": 1.1,  "fat_g": 0.3,  "gi_category": "sedang"},
-    {"name": "Apel",               "portion": "1 buah (150g)",   "calories": 78,  "carbs_g": 21.0, "protein_g": 0.4,  "fat_g": 0.2,  "gi_category": "rendah"},
-    {"name": "Pepaya",             "portion": "1 potong (200g)", "calories": 80,  "carbs_g": 20.0, "protein_g": 0.9,  "fat_g": 0.1,  "gi_category": "rendah"},
-    {"name": "Semangka",           "portion": "1 potong (200g)", "calories": 62,  "carbs_g": 15.6, "protein_g": 1.2,  "fat_g": 0.2,  "gi_category": "tinggi"},
-    {"name": "Jeruk",              "portion": "1 buah (130g)",   "calories": 47,  "carbs_g": 12.0, "protein_g": 0.9,  "fat_g": 0.1,  "gi_category": "rendah"},
+    {"name": "Pisang", "portion": "1 buah (100g)", "calories": 89, "carbs_g": 23.0, "protein_g": 1.1, "fat_g": 0.3, "gi_category": "sedang"},
+    {"name": "Apel", "portion": "1 buah (150g)", "calories": 78, "carbs_g": 21.0, "protein_g": 0.4, "fat_g": 0.2, "gi_category": "rendah"},
+    {"name": "Pepaya", "portion": "1 potong (200g)", "calories": 80, "carbs_g": 20.0, "protein_g": 0.9, "fat_g": 0.1, "gi_category": "rendah"},
+    {"name": "Semangka", "portion": "1 potong (200g)", "calories": 62, "carbs_g": 15.6, "protein_g": 1.2, "fat_g": 0.2, "gi_category": "tinggi"},
+    {"name": "Jeruk", "portion": "1 buah (130g)", "calories": 47, "carbs_g": 12.0, "protein_g": 0.9, "fat_g": 0.1, "gi_category": "rendah"},
     {"name": "Alpukat", "portion": "1/2 buah (100g)", "calories": 160, "carbs_g": 8.5, "protein_g": 2.0, "fat_g": 14.7, "gi_category": "rendah"},
     {"name": "Mangga", "portion": "1 buah (200g)", "calories": 120, "carbs_g": 30.0, "protein_g": 1.6, "fat_g": 0.8, "gi_category": "sedang"},
     {"name": "Durian", "portion": "3 biji (100g)", "calories": 147, "carbs_g": 27.0, "protein_g": 1.5, "fat_g": 5.3, "gi_category": "tinggi"},
@@ -213,12 +200,10 @@ FOOD_DATABASE = [
     {"name": "Nangka", "portion": "3 biji (100g)", "calories": 95, "carbs_g": 23.0, "protein_g": 1.7, "fat_g": 0.6, "gi_category": "sedang"},
     {"name": "Srikaya", "portion": "1 buah (100g)", "calories": 101, "carbs_g": 25.0, "protein_g": 2.0, "fat_g": 0.6, "gi_category": "tinggi"},
     {"name": "Kedondong", "portion": "1 buah (100g)", "calories": 41, "carbs_g": 10.0, "protein_g": 1.0, "fat_g": 0.1, "gi_category": "rendah"},
-    
-    # Minuman
     {"name": "Susu Sapi (rendah lemak)", "portion": "1 gelas (200ml)", "calories": 102, "carbs_g": 12.0, "protein_g": 7.0, "fat_g": 2.5, "gi_category": "rendah"},
-    {"name": "Teh Manis",          "portion": "1 gelas (200ml)", "calories": 60,  "carbs_g": 15.0, "protein_g": 0.0,  "fat_g": 0.0,  "gi_category": "tinggi"},
-    {"name": "Teh Tawar",          "portion": "1 gelas (200ml)", "calories": 2,   "carbs_g": 0.5,  "protein_g": 0.0,  "fat_g": 0.0,  "gi_category": "rendah"},
-    {"name": "Kopi Hitam",         "portion": "1 gelas (200ml)", "calories": 5,   "carbs_g": 1.0,  "protein_g": 0.3,  "fat_g": 0.0,  "gi_category": "rendah"},
+    {"name": "Teh Manis", "portion": "1 gelas (200ml)", "calories": 60, "carbs_g": 15.0, "protein_g": 0.0, "fat_g": 0.0, "gi_category": "tinggi"},
+    {"name": "Teh Tawar", "portion": "1 gelas (200ml)", "calories": 2, "carbs_g": 0.5, "protein_g": 0.0, "fat_g": 0.0, "gi_category": "rendah"},
+    {"name": "Kopi Hitam", "portion": "1 gelas (200ml)", "calories": 5, "carbs_g": 1.0, "protein_g": 0.3, "fat_g": 0.0, "gi_category": "rendah"},
     {"name": "Es Jeruk", "portion": "1 gelas", "calories": 110, "carbs_g": 25.0, "protein_g": 1.0, "fat_g": 0.0, "gi_category": "sedang"},
     {"name": "Jus Alpukat", "portion": "1 gelas", "calories": 250, "carbs_g": 20.0, "protein_g": 3.0, "fat_g": 18.0, "gi_category": "rendah"},
     {"name": "Jus Mangga", "portion": "1 gelas", "calories": 180, "carbs_g": 40.0, "protein_g": 1.0, "fat_g": 0.5, "gi_category": "sedang"},
@@ -244,12 +229,10 @@ FOOD_DATABASE = [
     {"name": "Kopi Instan Sachet", "portion": "1 sachet", "calories": 75, "carbs_g": 13.0, "protein_g": 1.0, "fat_g": 2.5, "gi_category": "tinggi"},
     {"name": "Minuman Isotonik", "portion": "1 botol (350ml)", "calories": 80, "carbs_g": 20.0, "protein_g": 0.0, "fat_g": 0.0, "gi_category": "tinggi"},
     {"name": "Jus Jeruk Kemasan", "portion": "1 kotak (250ml)", "calories": 110, "carbs_g": 26.0, "protein_g": 0.5, "fat_g": 0.0, "gi_category": "tinggi"},
-
-    # Snack
-    {"name": "Biskuit Gandum",     "portion": "4 keping (30g)",  "calories": 130, "carbs_g": 20.0, "protein_g": 3.0,  "fat_g": 4.5,  "gi_category": "sedang"},
-    {"name": "Kacang Tanah",       "portion": "1 genggam (30g)", "calories": 170, "carbs_g": 4.5,  "protein_g": 7.5,  "fat_g": 14.0, "gi_category": "rendah"},
+    {"name": "Biskuit Gandum", "portion": "4 keping (30g)", "calories": 130, "carbs_g": 20.0, "protein_g": 3.0, "fat_g": 4.5, "gi_category": "sedang"},
+    {"name": "Kacang Tanah", "portion": "1 genggam (30g)", "calories": 170, "carbs_g": 4.5, "protein_g": 7.5, "fat_g": 14.0, "gi_category": "rendah"},
     {"name": "Kuaci Biji Bunga Matahari", "portion": "1 kantong kecil (30g)", "calories": 165, "carbs_g": 6.0, "protein_g": 6.0, "fat_g": 14.0, "gi_category": "rendah"},
-    {"name": "Yogurt Tawar",       "portion": "1 cup (150g)",    "calories": 90,  "carbs_g": 12.0, "protein_g": 8.0,  "fat_g": 0.5,  "gi_category": "rendah"},
+    {"name": "Yogurt Tawar", "portion": "1 cup (150g)", "calories": 90, "carbs_g": 12.0, "protein_g": 8.0, "fat_g": 0.5, "gi_category": "rendah"},
     {"name": "Keripik Tempe", "portion": "1 genggam (30g)", "calories": 145, "carbs_g": 12.0, "protein_g": 8.0, "fat_g": 7.0, "gi_category": "rendah"},
     {"name": "Keripik Pisang", "portion": "1 genggam (30g)", "calories": 150, "carbs_g": 20.0, "protein_g": 1.0, "fat_g": 7.5, "gi_category": "tinggi"},
     {"name": "Keripik Singkong", "portion": "1 genggam (30g)", "calories": 155, "carbs_g": 22.0, "protein_g": 1.0, "fat_g": 7.0, "gi_category": "tinggi"},
@@ -267,7 +250,6 @@ FOOD_DATABASE = [
     {"name": "Puding Susu", "portion": "1 cup (150g)", "calories": 130, "carbs_g": 20.0, "protein_g": 4.0, "fat_g": 4.0, "gi_category": "sedang"},
 ]
 
-
 def _to_dict(e: DietEntry) -> dict:
     return {
         "id":          e.id,
@@ -284,7 +266,6 @@ def _to_dict(e: DietEntry) -> dict:
         "notes":       e.notes,
         "created_at":  e.created_at,
     }
-
 
 def _summary(entries: list, calorie_target: int = 1800) -> dict:
     total_cal   = sum(e.calories or 0 for e in entries)
@@ -309,14 +290,10 @@ def _summary(entries: list, calorie_target: int = 1800) -> dict:
         "entry_count":     len(entries),
     }
 
-
-# ── GET /diet/foods/ — daftar makanan referensi ────────────
 @router.get("/foods/")
 def get_food_database():
     return FOOD_DATABASE
 
-
-# ── POST /diet/entries/ — catat makanan ───────────────────
 @router.post("/entries/", status_code=201)
 def add_diet_entry(
     data: DietEntryCreate,
@@ -350,8 +327,6 @@ def add_diet_entry(
     db.refresh(entry)
     return _to_dict(entry)
 
-
-# ── GET /diet/entries/today — makanan hari ini ─────────────
 @router.get("/entries/today")
 def get_today_entries(
     current_user: User = Depends(get_current_user),
@@ -372,8 +347,6 @@ def get_today_entries(
     )
     return [_to_dict(e) for e in entries]
 
-
-# ── GET /diet/entries/?date= — makanan per tanggal ─────────
 @router.get("/entries/")
 def get_entries_by_date(
     entry_date: Optional[date] = None,
@@ -396,11 +369,9 @@ def get_entries_by_date(
     )
     return [_to_dict(e) for e in entries]
 
-
-# ── GET /diet/summary/today — ringkasan kalori hari ini ────
 @router.get("/summary/today")
 def get_today_summary(
-    calorie_target: int = 1800,
+    calorie_target: int = Query(1800, ge=500, le=5000),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -418,12 +389,10 @@ def get_today_summary(
     )
     return _summary(entries, calorie_target)
 
-
-# ── GET /diet/history/ — riwayat kalori per hari ──────────
 @router.get("/history/")
 def get_diet_history(
     days: int = Query(default=7, ge=1, le=90),
-    calorie_target: int = 1800,
+    calorie_target: int = Query(1800, ge=500, le=5000),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -433,7 +402,12 @@ def get_diet_history(
     if not patient:
         raise HTTPException(404, "Pasien tidak ditemukan")
 
-    start = date.today() - timedelta(days=days - 1)
+    # ── PERBAIKAN SONARQUBE: Validasi input & penggunaan variabel lokal ──
+    safe_days = int(days)
+    if safe_days < 1 or safe_days > 90:
+        raise HTTPException(400, "Parameter days harus antara 1 dan 90")
+
+    start = date.today() - timedelta(days=safe_days - 1)
     entries = (
         db.query(DietEntry)
         .filter(DietEntry.patient_id == patient.id,
@@ -442,14 +416,13 @@ def get_diet_history(
         .all()
     )
 
-    # Group per tanggal
-    from collections import defaultdict
-    daily: dict = defaultdict(list)
+    daily: Dict[str, List[DietEntry]] = defaultdict(list)
     for e in entries:
         daily[str(e.entry_date)].append(e)
 
     result = []
-    for i in range(days):
+    # SonarQube aman karena range menggunakan variabel lokal yang sudah divalidasi
+    for i in range(safe_days):
         d = start + timedelta(days=i)
         key = str(d)
         day_entries = daily.get(key, [])
@@ -459,8 +432,6 @@ def get_diet_history(
 
     return result
 
-
-# ── DELETE /diet/entries/{id} — hapus entri ────────────────
 @router.delete("/entries/{entry_id}")
 def delete_diet_entry(
     entry_id: int,
