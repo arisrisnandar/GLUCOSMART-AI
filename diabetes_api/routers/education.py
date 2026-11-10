@@ -70,7 +70,7 @@ def _is_safe_url(url: Optional[str]) -> bool:
         return False
 
 
-# ── Ensure kolom ──────────────────────────────────────────────────────────────
+# ── Ensure kolom ────────────────────────────────______________________________
 def _ensure_columns(db: Session):
     try:
         inspector = inspect(db.bind)
@@ -89,23 +89,30 @@ def _ensure_columns(db: Session):
         print(f"[education] _ensure_columns: {e}")
 
 
-# ── Save upload (Aman dari Filesystem Oracle, Path Traversal & DoS) ───────────
+# ── Save upload (Aman dari Path Traversal, Unsafe Filename & File Size DoS) ───
 def _save_upload(file: UploadFile, subfolder: str, base_url: str) -> str:
-    folder = os.path.join(UPLOAD_DIR, subfolder)
+    base_folder = os.path.abspath(UPLOAD_DIR)
+    folder = os.path.abspath(os.path.join(base_folder, subfolder))
     os.makedirs(folder, exist_ok=True)
     
-    # Amankan filename dari path traversal dan ambil bagian nama aslinya saja
+    # Amankan filename dari path traversal dengan mengambil base name saja
     safe_filename = os.path.basename(file.filename or "")
     raw_ext = os.path.splitext(safe_filename)[1].lower()
     
-    # Whitelist ekstensi ketat untuk mencegah eksekusi file berbahaya / Filesystem Oracle
     allowed_extensions = {".jpg", ".jpeg", ".png", ".pdf", ".mp4", ".webp"}
     if raw_ext not in allowed_extensions:
         raise HTTPException(status_code=400, detail="Format atau ekstensi file tidak diizinkan")
     
-    # Gunakan UUID murni untuk nama file fisik di server (mencegah informasi oracle / bentrok nama)
     filename = f"{uuid.uuid4().hex}{raw_ext}"
-    dest = os.path.join(folder, filename)
+    dest = os.path.abspath(os.path.join(folder, filename))
+
+    # Validasi Path Traversal tingkat lanjut: Pastikan destinasi absolut benar-benar berada di dalam folder tujuan
+    try:
+        common = os.path.commonpath([folder, dest])
+        if common != folder:
+            raise HTTPException(status_code=400, detail="Path file tidak valid (Path Traversal terdeteksi)")
+    except Exception:
+        raise HTTPException(status_code=400, detail="Path file tidak valid")
 
     MAX_FILE_SIZE = 10 * 1024 * 1024  # Batas maksimal file 10MB
     total_size = 0
