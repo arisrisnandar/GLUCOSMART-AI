@@ -271,7 +271,6 @@ async def get_news_feed(
     global _news_cache
     now = datetime.utcnow()
     
-    # Perbaikan sintaks perbandingan cache waktu agar aman dari error sintaksis
     cache_valid = (
         not refresh
         and _news_cache["fetched_at"] is not None
