@@ -1,0 +1,12 @@
+[versions]
+# Versi ini harus disesuaikan dengan yang ada di project Anda
+agp = "8.7.3"
+kotlin = "2.1.0"
+googleServices = "4.4.2"
+desugarJdkLibs = "2.1.2"
+
+[libraries]
+desugar-jdk-libs = { group = "com.android.tools", name = "desugar_jdk_libs", version.ref = "desugarJdkLibs" }
+
+[plugins]
+google-services = { id = "com.google.gms.google-services", version.ref = "googleServices" }
