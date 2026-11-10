@@ -27,7 +27,7 @@ class RegisterRequest(BaseModel):
     phone:        Optional[str] = None
     password:     str
     role:         str
-    gender:       Optional[str] = Field(default='L')  # Nilai default yang eksplisit ditambahkan
+    gender:       Optional[str] = Field(default='L')
 
     # ── Dokter ──────────────────────────────────────────
     specialization: Optional[str] = None   # spesialisasi dokter
@@ -71,6 +71,7 @@ def hash_password(password):
 
 def create_access_token(data: dict):
     to_encode = data.copy()
+    # Menggunakan datetime.now(timezone.utc) menggantikan utcnow()
     expire = datetime.now(timezone.utc) + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
     to_encode["exp"] = expire
     to_encode["sub"] = str(to_encode["sub"])
