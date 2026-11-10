@@ -4,7 +4,8 @@ publish_to: 'none'
 version: 1.0.0+1
 
 environment:
-  sdk: ^3.9.2
+  # PERBAIKAN: Kunci versi SDK secara eksplisit (tanpa ^) untuk prediktabilitas
+  sdk: '>=3.9.2 <4.0.0'
 
 dependencies:
   flutter:
