@@ -400,7 +400,7 @@ def get_entries_by_date(
 # ── GET /diet/summary/today — ringkasan kalori hari ini ────
 @router.get("/summary/today")
 def get_today_summary(
-    calorie_target: int = Query(default=1800, ge=1, le=10000),
+    calorie_target: int = 1800,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -422,8 +422,8 @@ def get_today_summary(
 # ── GET /diet/history/ — riwayat kalori per hari ──────────
 @router.get("/history/")
 def get_diet_history(
-    days: int = Query(default=7, ge=1, le=365),
-    calorie_target: int = Query(default=1800, ge=1, le=10000),
+    days: int = Query(default=7, ge=1, le=90),
+    calorie_target: int = 1800,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
