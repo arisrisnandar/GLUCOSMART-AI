@@ -30,18 +30,19 @@ android {
         versionName = flutter.versionName
     }
 
-    // android/app/build.gradle.kts
-buildTypes {
-    release {
-        isMinifyEnabled = true          // Mengaktifkan obfuscation/minifikasi dengan ProGuard/R8
-        isShrinkResources = true        // Menghapus resource yang tidak digunakan
+    buildTypes {
+        release {
+            // Mengaktifkan obfuscation dan minifikasi kode (ProGuard/R8)
+            isMinifyEnabled = true         
+            // Menghapus resource yang tidak digunakan untuk memperkecil ukuran APK/AAB
+            isShrinkResources = true        
 
-        proguardFiles(
-            getDefaultProguardFile("proguard-android-optimize.txt"),
-            "proguard-rules.pro"
-        )
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                "proguard-rules.pro"
+            )
+        }
     }
-}
 
     lint {
         checkReleaseBuilds = false
