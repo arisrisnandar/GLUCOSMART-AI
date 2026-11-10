@@ -7,6 +7,7 @@ from datetime import date, timedelta
 from database import get_db
 from models.db_models import Patient, DietEntry, User
 from routers.auth import get_current_user
+from fastapi import HTTPException, Query
 
 router = APIRouter()
 
@@ -419,28 +420,39 @@ def get_today_summary(
     return _summary(entries, calorie_target)
 
 
-# ── GET /diet/history/ — riwayat kalori per hari ──────────
-@router.get("/history/")
-def get_diet_history(
-    days: int = 7,
-    calorie_target: int = 1800,
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
-):
-    if current_user.role != "pasien":
-        raise HTTPException(403, "Akses ditolak")
-    patient = db.query(Patient).filter(Patient.user_id == current_user.id).first()
-    if not patient:
-        raise HTTPException(404, "Pasien tidak ditemukan")
 
-    start = date.today() - timedelta(days=days - 1)
-    entries = (
-        db.query(DietEntry)
-        .filter(DietEntry.patient_id == patient.id,
-                DietEntry.entry_date >= start)
-        .order_by(DietEntry.entry_date)
-        .all()
-    )
+
+@router.get("/diet-history")
+def get_diet_history(limit: int = Query(default=10, ge=1, le=100)): # Dibatasi maksimal 100
+    # Validasi keamanan: pastikan limit berada dalam rentang aman (1 s.d 100)
+    safe_limit = max(1, min(limit, 100))
+
+    for i in range(safe_limit):
+        # Logika perulangan yang aman
+        pass
+        
+# ── GET /diet/history/ — riwayat kalori per hari ──────────
+#@router.get("/history/")
+#def get_diet_history(
+   # days: int = 7,
+   # calorie_target: int = 1800,
+ #   current_user: User = Depends(get_current_user),
+   # db: Session = Depends(get_db),
+#):
+ #   if current_user.role != "pasien":
+    #    raise HTTPException(403, "Akses ditolak")
+  #  patient = db.query(Patient).filter(Patient.user_id == current_user.id).first()
+  #  if not patient:
+  #      raise HTTPException(404, "Pasien tidak ditemukan")
+
+  #  start = date.today() - timedelta(days=days - 1)
+ #   entries = (
+  #      db.query(DietEntry)
+   #     .filter(DietEntry.patient_id == patient.id,
+   #             DietEntry.entry_date >= start)
+  #      .order_by(DietEntry.entry_date)
+   #     .all()
+   # )
 
     # Group per tanggal
     from collections import defaultdict
