@@ -7,7 +7,7 @@ from models.db_models import EducationContent, User, Notification
 from routers.auth import get_current_user
 from firebase_service import send_push_multi
 import os, shutil, uuid, asyncio, httpx
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from urllib.parse import urlparse
 import re
 
@@ -70,7 +70,7 @@ def _is_safe_url(url: Optional[str]) -> bool:
         return False
 
 
-# ── Ensure kolom ────────────────────────────────______________________________
+# ── Ensure kolom ──────────────────────────────────────────────────────────────
 def _ensure_columns(db: Session):
     try:
         inspector = inspect(db.bind)
@@ -300,7 +300,7 @@ async def get_news_feed(
     current_user: User = Depends(get_current_user),
 ):
     global _news_cache
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     
     async with _news_lock:
         cache_valid = (
