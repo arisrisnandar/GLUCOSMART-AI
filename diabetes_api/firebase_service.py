@@ -3,10 +3,18 @@ import os
 import time
 import httpx
 
-CREDENTIALS_FILE = os.getenv(
+# Amankan direktori dasar proyek
+BASE_DIR = os.path.abspath(os.path.dirname(__file__))
+
+_raw_credentials_path = os.getenv(
     "FIREBASE_CREDENTIALS",
     "sobatgula-firebase-adminsdk-fbsvc-e2f7cdc8f7.json"
 )
+
+# Validasi Path Traversal: pastikan file kredensial berada di dalam direktori aplikasi/proyek
+CREDENTIALS_FILE = os.path.abspath(os.path.join(BASE_DIR, _raw_credentials_path))
+if not CREDENTIALS_FILE.startswith(BASE_DIR):
+    raise ValueError("Keamanan Terdeteksi: Path kredensial Firebase berada di luar direktori yang diizinkan.")
 
 _cached: dict = {"token": None, "expires_at": 0, "project_id": None}
 
@@ -19,6 +27,9 @@ def _get_access_token() -> str:
 
     from google.oauth2 import service_account
     from google.auth.transport.requests import Request as GoogleRequest
+
+    if not os.path.exists(CREDENTIALS_FILE):
+        raise FileNotFoundError(f"File kredensial Firebase tidak ditemukan di: {CREDENTIALS_FILE}")
 
     creds = service_account.Credentials.from_service_account_file(
         CREDENTIALS_FILE,
@@ -34,7 +45,11 @@ def _get_access_token() -> str:
 def _get_project_id() -> str:
     if _cached["project_id"]:
         return _cached["project_id"]
-    with open(CREDENTIALS_FILE) as f:
+    
+    if not os.path.exists(CREDENTIALS_FILE):
+        raise FileNotFoundError(f"File kredensial Firebase tidak ditemukan di: {CREDENTIALS_FILE}")
+
+    with open(CREDENTIALS_FILE, "r", encoding="utf-8") as f:
         pid = json.load(f)["project_id"]
     _cached["project_id"] = pid
     return pid
@@ -93,7 +108,6 @@ async def send_push(
             return True
         else:
             print(f"[FCM] ✗ error {resp.status_code}: {resp.text[:300]}")
-            # Jika token tidak valid (404), kembalikan False
             if resp.status_code == 404:
                 print(f"[FCM] token tidak valid, perlu login ulang di app")
             return False
