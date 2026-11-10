@@ -30,11 +30,18 @@ android {
         versionName = flutter.versionName
     }
 
-    buildTypes {
-        release {
-            signingConfig = signingConfigs.getByName("debug")
-        }
+    // android/app/build.gradle.kts
+buildTypes {
+    release {
+        isMinifyEnabled = true          // Mengaktifkan obfuscation/minifikasi dengan ProGuard/R8
+        isShrinkResources = true        // Menghapus resource yang tidak digunakan
+
+        proguardFiles(
+            getDefaultProguardFile("proguard-android-optimize.txt"),
+            "proguard-rules.pro"
+        )
     }
+}
 
     lint {
         checkReleaseBuilds = false
