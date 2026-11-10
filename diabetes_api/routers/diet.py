@@ -11,6 +11,11 @@ from routers.auth import get_current_user
 
 router = APIRouter()
 
+# ── Konstanta Keamanan ──────────────────────────────────────────────────────
+MAX_HISTORY_DAYS = 90
+MIN_HISTORY_DAYS = 1
+DEFAULT_HISTORY_DAYS = 7
+
 class DietEntryCreate(BaseModel):
     entry_date:  Optional[date]  = None
     meal_type:   str             = Field(..., max_length=20)
@@ -290,9 +295,32 @@ def _summary(entries: list, calorie_target: int = 1800) -> dict:
         "entry_count":     len(entries),
     }
 
+
+def _validate_history_days(days: int) -> int:
+    """
+    Validasi ketat parameter `days` untuk memutus aliran taint SonarQube.
+    Fungsi ini mengembalikan nilai integer yang sudah dijamin berada
+    dalam rentang MIN_HISTORY_DAYS..MAX_HISTORY_DAYS.
+    """
+    # Konversi ke integer terlebih dahulu (type casting yang eksplisit)
+    try:
+        parsed = int(days)
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=400, detail="Parameter days tidak valid")
+
+    # Validasi dengan konstanta (bukan input mentah)
+    if parsed < MIN_HISTORY_DAYS or parsed > MAX_HISTORY_DAYS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Parameter days harus antara {MIN_HISTORY_DAYS} dan {MAX_HISTORY_DAYS}"
+        )
+    return parsed
+
+
 @router.get("/foods/")
 def get_food_database():
     return FOOD_DATABASE
+
 
 @router.post("/entries/", status_code=201)
 def add_diet_entry(
@@ -327,6 +355,7 @@ def add_diet_entry(
     db.refresh(entry)
     return _to_dict(entry)
 
+
 @router.get("/entries/today")
 def get_today_entries(
     current_user: User = Depends(get_current_user),
@@ -346,6 +375,7 @@ def get_today_entries(
         .all()
     )
     return [_to_dict(e) for e in entries]
+
 
 @router.get("/entries/")
 def get_entries_by_date(
@@ -369,6 +399,7 @@ def get_entries_by_date(
     )
     return [_to_dict(e) for e in entries]
 
+
 @router.get("/summary/today")
 def get_today_summary(
     calorie_target: int = Query(1800, ge=500, le=5000),
@@ -389,9 +420,10 @@ def get_today_summary(
     )
     return _summary(entries, calorie_target)
 
+
 @router.get("/history/")
 def get_diet_history(
-    days: int = Query(default=7, ge=1, le=90),
+    days: int = Query(default=DEFAULT_HISTORY_DAYS, ge=MIN_HISTORY_DAYS, le=MAX_HISTORY_DAYS),
     calorie_target: int = Query(1800, ge=500, le=5000),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -402,12 +434,10 @@ def get_diet_history(
     if not patient:
         raise HTTPException(404, "Pasien tidak ditemukan")
 
-    # ── PERBAIKAN SONARQUBE: Validasi input & penggunaan variabel lokal ──
-    safe_days = int(days)
-    if safe_days < 1 or safe_days > 90:
-        raise HTTPException(400, "Parameter days harus antara 1 dan 90")
+    # ── PERBAIKAN SONARQUBE: Gunakan fungsi validasi eksplisit ──
+    validated_days = _validate_history_days(days)
 
-    start = date.today() - timedelta(days=safe_days - 1)
+    start = date.today() - timedelta(days=validated_days - 1)
     entries = (
         db.query(DietEntry)
         .filter(DietEntry.patient_id == patient.id,
@@ -421,8 +451,8 @@ def get_diet_history(
         daily[str(e.entry_date)].append(e)
 
     result = []
-    # SonarQube aman karena range menggunakan variabel lokal yang sudah divalidasi
-    for i in range(safe_days):
+    # Perulangan menggunakan variabel yang sudah divalidasi ketat
+    for i in range(validated_days):
         d = start + timedelta(days=i)
         key = str(d)
         day_entries = daily.get(key, [])
@@ -431,6 +461,7 @@ def get_diet_history(
         result.append(s)
 
     return result
+
 
 @router.delete("/entries/{entry_id}")
 def delete_diet_entry(
