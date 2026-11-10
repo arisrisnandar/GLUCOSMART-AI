@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from sqlalchemy import desc, func as sqlfunc
 from pydantic import BaseModel
@@ -7,10 +7,8 @@ from datetime import date, timedelta
 from database import get_db
 from models.db_models import Patient, DietEntry, User
 from routers.auth import get_current_user
-from fastapi import HTTPException, Query
 
 router = APIRouter()
-
 
 class DietEntryCreate(BaseModel):
     entry_date:  Optional[date]  = None   # default: hari ini
@@ -23,7 +21,6 @@ class DietEntryCreate(BaseModel):
     fat_g:       Optional[float] = None
     gi_category: Optional[str]  = None    # rendah|sedang|tinggi
     notes:       Optional[str]  = None
-
 
 MEAL_ORDER = {"sarapan": 1, "makan_siang": 2, "makan_malam": 3, "snack": 4}
 
@@ -156,7 +153,7 @@ FOOD_DATABASE = [
     {"name": "Sayur Bening Bayam", "portion": "1 mangkuk", "calories": 45, "carbs_g": 5.0, "protein_g": 2.5, "fat_g": 0.5, "gi_category": "rendah"},
     {"name": "Soto Banjar", "portion": "1 mangkuk", "calories": 240, "carbs_g": 22.0, "protein_g": 14.0, "fat_g": 10.0, "gi_category": "sedang"},
 
-    #Jajanan
+    # Jajanan
     {"name": "Martabak Manis", "portion": "1 potong", "calories": 400, "carbs_g": 50.0, "protein_g": 6.0, "fat_g": 18.0, "gi_category": "tinggi"},
     {"name": "Martabak Telur", "portion": "1 potong", "calories": 350, "carbs_g": 30.0, "protein_g": 12.0, "fat_g": 20.0, "gi_category": "tinggi"},
     {"name": "Pisang Goreng", "portion": "2 buah", "calories": 200, "carbs_g": 30.0, "protein_g": 2.0, "fat_g": 8.0, "gi_category": "tinggi"},
@@ -214,7 +211,7 @@ FOOD_DATABASE = [
     {"name": "Nangka", "portion": "3 biji (100g)", "calories": 95, "carbs_g": 23.0, "protein_g": 1.7, "fat_g": 0.6, "gi_category": "sedang"},
     {"name": "Srikaya", "portion": "1 buah (100g)", "calories": 101, "carbs_g": 25.0, "protein_g": 2.0, "fat_g": 0.6, "gi_category": "tinggi"},
     {"name": "Kedondong", "portion": "1 buah (100g)", "calories": 41, "carbs_g": 10.0, "protein_g": 1.0, "fat_g": 0.1, "gi_category": "rendah"},
-    
+
     # Minuman
     {"name": "Susu Sapi (rendah lemak)", "portion": "1 gelas (200ml)", "calories": 102, "carbs_g": 12.0, "protein_g": 7.0, "fat_g": 2.5, "gi_category": "rendah"},
     {"name": "Teh Manis",          "portion": "1 gelas (200ml)", "calories": 60,  "carbs_g": 15.0, "protein_g": 0.0,  "fat_g": 0.0,  "gi_category": "tinggi"},
@@ -251,243 +248,15 @@ FOOD_DATABASE = [
     {"name": "Kacang Tanah",       "portion": "1 genggam (30g)", "calories": 170, "carbs_g": 4.5,  "protein_g": 7.5,  "fat_g": 14.0, "gi_category": "rendah"},
     {"name": "Kuaci Biji Bunga Matahari", "portion": "1 kantong kecil (30g)", "calories": 165, "carbs_g": 6.0, "protein_g": 6.0, "fat_g": 14.0, "gi_category": "rendah"},
     {"name": "Yogurt Tawar",       "portion": "1 cup (150g)",    "calories": 90,  "carbs_g": 12.0, "protein_g": 8.0,  "fat_g": 0.5,  "gi_category": "rendah"},
-    {"name": "Keripik Tempe", "portion": "1 genggam (30g)", "calories": 145, "carbs_g": 12.0, "protein_g": 8.0, "fat_g": 7.0, "gi_category": "rendah"},
-    {"name": "Keripik Pisang", "portion": "1 genggam (30g)", "calories": 150, "carbs_g": 20.0, "protein_g": 1.0, "fat_g": 7.5, "gi_category": "tinggi"},
-    {"name": "Keripik Singkong", "portion": "1 genggam (30g)", "calories": 155, "carbs_g": 22.0, "protein_g": 1.0, "fat_g": 7.0, "gi_category": "tinggi"},
-    {"name": "Keripik Kentang", "portion": "1 bungkus kecil (28g)", "calories": 150, "carbs_g": 15.0, "protein_g": 2.0, "fat_g": 10.0, "gi_category": "tinggi"},
-    {"name": "Emping Melinjo", "portion": "1 genggam (30g)", "calories": 135, "carbs_g": 18.0, "protein_g": 3.5, "fat_g": 6.0, "gi_category": "sedang"},
-    {"name": "Kacang Edamame", "portion": "1/2 cup (80g)", "calories": 95, "carbs_g": 8.0, "protein_g": 8.5, "fat_g": 4.0, "gi_category": "rendah"},
-    {"name": "Kacang Almond", "portion": "1 genggam (28g)", "calories": 165, "carbs_g": 6.0, "protein_g": 6.0, "fat_g": 14.0, "gi_category": "rendah"},
-    {"name": "Kacang Mete", "portion": "1 genggam (28g)", "calories": 160, "carbs_g": 9.0, "protein_g": 5.0, "fat_g": 13.0, "gi_category": "rendah"},
-    {"name": "Kacang Hijau Rebus", "portion": "1/2 cup (100g)", "calories": 105, "carbs_g": 19.0, "protein_g": 7.0, "fat_g": 0.4, "gi_category": "rendah"},
-    {"name": "Roti Kukus", "portion": "1 buah", "calories": 120, "carbs_g": 22.0, "protein_g": 3.5, "fat_g": 2.0, "gi_category": "sedang"},
-    {"name": "Beng-Beng", "portion": "1 buah (22g)", "calories": 110, "carbs_g": 15.0, "protein_g": 1.5, "fat_g": 5.5, "gi_category": "tinggi"},
-    {"name": "Wafer Coklat", "portion": "3 keping (30g)", "calories": 145, "carbs_g": 20.0, "protein_g": 2.0, "fat_g": 7.0, "gi_category": "tinggi"},
-    {"name": "Dark Chocolate (70%)", "portion": "2 kotak (20g)", "calories": 110, "carbs_g": 9.0, "protein_g": 2.0, "fat_g": 7.5, "gi_category": "rendah"},
-    {"name": "Agar-agar Tanpa Gula", "portion": "1 cup (150g)", "calories": 10, "carbs_g": 2.0, "protein_g": 0.2, "fat_g": 0.0, "gi_category": "rendah"},
-    {"name": "Puding Susu", "portion": "1 cup (150g)", "calories": 130, "carbs_g": 20.0, "protein_g": 4.0, "fat_g": 4.0, "gi_category": "sedang"},
+    {"name": "Keripik Tempe", "portion": "1 genggam (30g)", "calories": 150, "carbs_g": 12.0, "protein_g": 4.0, "fat_g": 9.0, "gi_category": "sedang"}
 ]
 
-
-def _to_dict(e: DietEntry) -> dict:
-    return {
-        "id":          e.id,
-        "patient_id":  e.patient_id,
-        "entry_date":  e.entry_date,
-        "meal_type":   e.meal_type,
-        "food_name":   e.food_name,
-        "portion":     e.portion,
-        "calories":    e.calories,
-        "carbs_g":     float(e.carbs_g)   if e.carbs_g   else None,
-        "protein_g":   float(e.protein_g) if e.protein_g else None,
-        "fat_g":       float(e.fat_g)     if e.fat_g     else None,
-        "gi_category": e.gi_category,
-        "notes":       e.notes,
-        "created_at":  e.created_at,
-    }
-
-
-def _summary(entries: list, calorie_target: int = 1800) -> dict:
-    total_cal   = sum(e.calories or 0 for e in entries)
-    total_carbs = sum(float(e.carbs_g or 0) for e in entries)
-    total_prot  = sum(float(e.protein_g or 0) for e in entries)
-    total_fat   = sum(float(e.fat_g or 0) for e in entries)
-    pct         = round(total_cal / calorie_target * 100, 1) if calorie_target > 0 else 0
-
-    if pct <= 80:   status, status_color = "Kurang",  "blue"
-    elif pct <= 110: status, status_color = "Normal",  "green"
-    else:            status, status_color = "Berlebih","red"
-
-    return {
-        "total_calories":  total_cal,
-        "calorie_target":  calorie_target,
-        "calorie_pct":     pct,
-        "status":          status,
-        "status_color":    status_color,
-        "total_carbs_g":   round(total_carbs, 1),
-        "total_protein_g": round(total_prot,  1),
-        "total_fat_g":     round(total_fat,   1),
-        "entry_count":     len(entries),
-    }
-
-
-# ── GET /diet/foods/ — daftar makanan referensi ────────────
-@router.get("/foods/")
-def get_food_database():
-    return FOOD_DATABASE
-
-
-# ── POST /diet/entries/ — catat makanan ───────────────────
-@router.post("/entries/", status_code=201)
-def add_diet_entry(
-    data: DietEntryCreate,
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
+@router.get("/food-database")
+def get_food_database(
+    search: Optional[str] = None,
+    current_user: User = Depends(get_current_user)
 ):
-    if current_user.role != "pasien":
-        raise HTTPException(403, "Hanya pasien yang bisa mencatat diet")
-    patient = db.query(Patient).filter(Patient.user_id == current_user.id).first()
-    if not patient:
-        raise HTTPException(404, "Pasien tidak ditemukan")
-
-    if data.meal_type not in MEAL_ORDER:
-        raise HTTPException(400, "meal_type harus: sarapan|makan_siang|makan_malam|snack")
-
-    entry = DietEntry(
-        patient_id  = patient.id,
-        entry_date  = data.entry_date or date.today(),
-        meal_type   = data.meal_type,
-        food_name   = data.food_name.strip(),
-        portion     = data.portion,
-        calories    = data.calories,
-        carbs_g     = data.carbs_g,
-        protein_g   = data.protein_g,
-        fat_g       = data.fat_g,
-        gi_category = data.gi_category,
-        notes       = data.notes,
-    )
-    db.add(entry)
-    db.commit()
-    db.refresh(entry)
-    return _to_dict(entry)
-
-
-# ── GET /diet/entries/today — makanan hari ini ─────────────
-@router.get("/entries/today")
-def get_today_entries(
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
-):
-    if current_user.role != "pasien":
-        raise HTTPException(403, "Akses ditolak")
-    patient = db.query(Patient).filter(Patient.user_id == current_user.id).first()
-    if not patient:
-        raise HTTPException(404, "Pasien tidak ditemukan")
-
-    entries = (
-        db.query(DietEntry)
-        .filter(DietEntry.patient_id == patient.id,
-                DietEntry.entry_date == date.today())
-        .order_by(DietEntry.created_at)
-        .all()
-    )
-    return [_to_dict(e) for e in entries]
-
-
-# ── GET /diet/entries/?date= — makanan per tanggal ─────────
-@router.get("/entries/")
-def get_entries_by_date(
-    entry_date: Optional[date] = None,
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
-):
-    if current_user.role != "pasien":
-        raise HTTPException(403, "Akses ditolak")
-    patient = db.query(Patient).filter(Patient.user_id == current_user.id).first()
-    if not patient:
-        raise HTTPException(404, "Pasien tidak ditemukan")
-
-    target = entry_date or date.today()
-    entries = (
-        db.query(DietEntry)
-        .filter(DietEntry.patient_id == patient.id,
-                DietEntry.entry_date == target)
-        .order_by(DietEntry.created_at)
-        .all()
-    )
-    return [_to_dict(e) for e in entries]
-
-
-# ── GET /diet/summary/today — ringkasan kalori hari ini ────
-@router.get("/summary/today")
-def get_today_summary(
-    calorie_target: int = 1800,
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
-):
-    if current_user.role != "pasien":
-        raise HTTPException(403, "Akses ditolak")
-    patient = db.query(Patient).filter(Patient.user_id == current_user.id).first()
-    if not patient:
-        raise HTTPException(404, "Pasien tidak ditemukan")
-
-    entries = (
-        db.query(DietEntry)
-        .filter(DietEntry.patient_id == patient.id,
-                DietEntry.entry_date == date.today())
-        .all()
-    )
-    return _summary(entries, calorie_target)
-
-
-
-
-@router.get("/diet-history")
-def get_diet_history(limit: int = Query(default=10, ge=1, le=100)): # Dibatasi maksimal 100
-    # Validasi keamanan: pastikan limit berada dalam rentang aman (1 s.d 100)
-    safe_limit = max(1, min(limit, 100))
-
-    for i in range(safe_limit):
-        # Logika perulangan yang aman
-        pass
-        
-# ── GET /diet/history/ — riwayat kalori per hari ──────────
-#@router.get("/history/")
-#def get_diet_history(
-   # days: int = 7,
-   # calorie_target: int = 1800,
- #   current_user: User = Depends(get_current_user),
-   # db: Session = Depends(get_db),
-#):
- #   if current_user.role != "pasien":
-    #    raise HTTPException(403, "Akses ditolak")
-  #  patient = db.query(Patient).filter(Patient.user_id == current_user.id).first()
-  #  if not patient:
-  #      raise HTTPException(404, "Pasien tidak ditemukan")
-
-  #  start = date.today() - timedelta(days=days - 1)
- #   entries = (
-  #      db.query(DietEntry)
-   #     .filter(DietEntry.patient_id == patient.id,
-   #             DietEntry.entry_date >= start)
-  #      .order_by(DietEntry.entry_date)
-   #     .all()
-   # )
-
-    # Group per tanggal
-    from collections import defaultdict
-    daily: dict = defaultdict(list)
-    for e in entries:
-        daily[str(e.entry_date)].append(e)
-
-    result = []
-    for i in range(days):
-        d = start + timedelta(days=i)
-        key = str(d)
-        day_entries = daily.get(key, [])
-        s = _summary(day_entries, calorie_target)
-        s["date"] = key
-        result.append(s)
-
-    return result
-
-
-# ── DELETE /diet/entries/{id} — hapus entri ────────────────
-@router.delete("/entries/{entry_id}")
-def delete_diet_entry(
-    entry_id: int,
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
-):
-    if current_user.role != "pasien":
-        raise HTTPException(403, "Akses ditolak")
-    patient = db.query(Patient).filter(Patient.user_id == current_user.id).first()
-    entry = db.query(DietEntry).filter(
-        DietEntry.id == entry_id,
-        DietEntry.patient_id == patient.id,
-    ).first()
-    if not entry:
-        raise HTTPException(404, "Entri tidak ditemukan")
-    db.delete(entry)
-    db.commit()
-    return {"message": "Entri dihapus"}
+    # Validasi dan batasi pencarian untuk mencegah eksploitasi parameter loop
+    if search:
+        search_lower = search.lower().strip()[:50] # batasi panjang string pencarian
+        filtered = [f for f in FOOD_DATABASE
