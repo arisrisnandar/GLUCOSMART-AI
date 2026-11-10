@@ -1,7 +1,9 @@
 import json
 import os
 import time
+import re
 import httpx
+import asyncio
 
 # Amankan direktori dasar proyek
 BASE_DIR = os.path.abspath(os.path.dirname(__file__))
@@ -13,11 +15,9 @@ _raw_credentials_path = os.getenv(
 
 # Validasi Path Traversal tingkat lanjut menggunakan os.path.commonpath
 _resolved_base = os.path.abspath(BASE_DIR)
-# Gabungkan dengan base path lalu ambil absolute path-nya
 _target_path = os.path.abspath(os.path.join(_resolved_base, _raw_credentials_path))
 
 try:
-    # Memastikan path tujuan benar-benar berada di dalam sub-pohon BASE_DIR
     if os.path.commonpath([_resolved_base, _target_path]) != _resolved_base:
         raise ValueError("Path Traversal terdeteksi")
 except Exception:
@@ -59,7 +59,16 @@ def _get_project_id() -> str:
         raise FileNotFoundError(f"File kredensial Firebase tidak ditemukan di: {CREDENTIALS_FILE}")
 
     with open(CREDENTIALS_FILE, "r", encoding="utf-8") as f:
-        pid = json.load(f)["project_id"]
+        try:
+            pid = json.load(f)["project_id"]
+        except (KeyError, json.JSONDecodeError):
+            raise ValueError("Format file kredensial Firebase tidak valid.")
+
+    # ── PERBAIKAN SONARQUBE: Sanitasi & Validasi Konten File ──
+    # Project ID Google Cloud hanya boleh berisi huruf kecil, angka, dan tanda hubung (max 30 char)
+    if not isinstance(pid, str) or not re.match(r"^[a-z0-9\-]{6,30}$", pid):
+        raise ValueError("Project ID Firebase tidak valid (mengandung karakter berbahaya).")
+
     _cached["project_id"] = pid
     return pid
 
@@ -77,6 +86,8 @@ async def send_push(
     try:
         access_token = _get_access_token()
         project_id   = _get_project_id()
+        
+        # URL dibentuk dari project_id yang sudah divalidasi ketat
         url = f"https://fcm.googleapis.com/v1/projects/{project_id}/messages:send"
 
         payload = {
@@ -133,18 +144,19 @@ async def send_push_multi(
     data: dict = None,
 ) -> int:
     """Kirim ke banyak token sekaligus. Return jumlah yang berhasil."""
-    import asyncio
-
     if not tokens:
         print(f"[FCM] send_push_multi: tidak ada token, skip")
         return 0
 
     print(f"[FCM] send_push_multi: {len(tokens)} token, title={title!r}")
 
+    # Filter token kosong/None sebelum dikirim
+    valid_tokens = [t for t in tokens if t]
+    
     results = await asyncio.gather(
-        *[send_push(t, title, body, data) for t in tokens if t],
+        *[send_push(t, title, body, data) for t in valid_tokens],
         return_exceptions=True,
     )
     ok = sum(1 for r in results if r is True)
-    print(f"[FCM] send_push_multi selesai: {ok}/{len(tokens)} berhasil")
+    print(f"[FCM] send_push_multi selesai: {ok}/{len(valid_tokens)} berhasil")
     return ok
