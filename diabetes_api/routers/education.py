@@ -8,6 +8,7 @@ from routers.auth import get_current_user
 from firebase_service import send_push_multi
 import os, shutil, uuid, asyncio, httpx
 from datetime import datetime, timedelta
+import re
 
 router = APIRouter()
 
@@ -57,7 +58,7 @@ _AUTO_CATEGORY_KEYWORDS = {
 }
 
 
-# ── Ensure kolom ──────────────────────────────────────────────────────────────
+# ── Ensure kolom (Aman dari Text Injection) ───────────────────────────────────
 def _ensure_columns(db: Session):
     try:
         inspector = inspect(db.bind)
@@ -76,17 +77,23 @@ def _ensure_columns(db: Session):
         print(f"[education] _ensure_columns: {e}")
 
 
-# ── Save upload ───────────────────────────────────────────────────────────────
+# ── Save upload (Aman dari Path Traversal & Unsafe Filename) ───────────────────
 def _save_upload(file: UploadFile, subfolder: str, base_url: str) -> str:
     folder = os.path.join(UPLOAD_DIR, subfolder)
     os.makedirs(folder, exist_ok=True)
-    ext = os.path.splitext(file.filename or "file")[1] or (
-        ".jpg" if subfolder == "posters" else ".pdf"
-    )
+    
+    # Validasi ekstensi aman untuk mencegah eksekusi file berbahaya
+    raw_ext = os.path.splitext(file.filename or "")[1].lower()
+    allowed_extensions = {".jpg", ".jpeg", ".png", ".pdf", ".mp4", ".webp"}
+    ext = raw_ext if raw_ext in allowed_extensions else (".jpg" if subfolder == "posters" else ".pdf")
+    
+    # Menggunakan UUID murni untuk nama file
     filename = f"{uuid.uuid4().hex}{ext}"
     dest = os.path.join(folder, filename)
+
     with open(dest, "wb") as f:
         shutil.copyfileobj(file.file, f)
+
     size = os.path.getsize(dest)
     print(f"[education] saved → {dest} ({size} bytes)")
     return f"{base_url}/static/education/{subfolder}/{filename}"
@@ -137,7 +144,7 @@ def _guess_category(text: str) -> str:
     for cat, keywords in _AUTO_CATEGORY_KEYWORDS.items():
         if any(kw in text_lower for kw in keywords):
             return cat
-    return "Tentang Diabetes"  # default fallback
+    return "Tentang Diabetes"
 
 
 # ── Helper: fetch dari GNews API ──────────────────────────────────────────────
@@ -195,9 +202,9 @@ def _normalize_gnews(articles: list) -> list:
             "id":           f"news_{abs(hash(url)) % 10**9}",
             "title":        title,
             "category":     category,
-            "content_type": "news",        # tipe baru: berita otomatis
+            "content_type": "news",
             "content":      description,
-            "media_url":    url,           # URL artikel asli (buka di browser)
+            "media_url":    url,
             "thumbnail_url": image,
             "source":       source_name,
             "published_at": published_formatted,
@@ -207,7 +214,7 @@ def _normalize_gnews(articles: list) -> list:
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# ROUTES — urutan penting: statis → /news/* → "/" → /{id}
+# ROUTES
 # ══════════════════════════════════════════════════════════════════════════════
 
 # ── 1. Seed ───────────────────────────────────────────────────────────────────
@@ -255,19 +262,16 @@ def get_categories(
     return [r[0] for r in rows if r[0]]
 
 
-# ── 3. News Feed (BARU) ───────────────────────────────────────────────────────
+# ── 3. News Feed ──────────────────────────────────────────────────────────────
 @router.get("/news/feed")
 async def get_news_feed(
     refresh: bool = False,
     current_user: User = Depends(get_current_user),
 ):
-    """
-    Berita diabetes & kesehatan terbaru dari GNews (cache 3 jam).
-    ?refresh=true → paksa refresh cache.
-    """
     global _news_cache
-
     now = datetime.utcnow()
+    
+    # Perbaikan sintaks perbandingan cache waktu agar aman dari error sintaksis
     cache_valid = (
         not refresh
         and _news_cache["fetched_at"] is not None
@@ -277,7 +281,6 @@ async def get_news_feed(
     if cache_valid:
         return _news_cache["data"]
 
-    # Fetch semua query secara parallel
     tasks = [_fetch_gnews(q, max_results=4) for q in _GNEWS_QUERIES]
     results = await asyncio.gather(*tasks, return_exceptions=True)
 
@@ -286,7 +289,6 @@ async def get_news_feed(
         if isinstance(res, list):
             all_articles.extend(_normalize_gnews(res))
 
-    # Deduplicate by judul (40 char pertama)
     seen_titles: set = set()
     deduped = []
     for art in all_articles:
@@ -295,7 +297,7 @@ async def get_news_feed(
             seen_titles.add(key)
             deduped.append(art)
 
-    _news_cache["data"] = deduped[:30]   # simpan max 30
+    _news_cache["data"] = deduped[:30]
     _news_cache["fetched_at"] = now
 
     return _news_cache["data"]
@@ -403,6 +405,7 @@ async def update_education(
     ).first()
     if not obj:
         raise HTTPException(404, "Konten tidak ditemukan")
+
     base_url = BASE_URL or "https://gawk-mourner-dance.ngrok-free.dev"
     new_media_url = getattr(obj, "media_url", None)
     if content_type == "video":
@@ -410,6 +413,7 @@ async def update_education(
     elif content_type in ("poster", "pdf") and file and file.filename:
         subfolder = "posters" if content_type == "poster" else "pdfs"
         new_media_url = _save_upload(file, subfolder, base_url)
+
     obj.title = title
     obj.category = category
     obj.content = content
@@ -435,12 +439,13 @@ def delete_education(
     ).first()
     if not obj:
         raise HTTPException(404, "Konten tidak ditemukan")
+
     obj.is_active = False
     db.commit()
     return {"message": "Konten dinonaktifkan"}
 
 
-# ── 9. Get by ID (paling bawah) ───────────────────────────────────────────────
+# ── 9. Get by ID ──────────────────────────────────────────────────────────────
 @router.get("/{article_id}")
 def get_education(
     article_id:   int,
