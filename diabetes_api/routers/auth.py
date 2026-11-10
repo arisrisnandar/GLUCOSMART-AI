@@ -3,7 +3,7 @@ from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
 from pydantic import BaseModel, EmailStr
 from typing import Optional
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from jose import JWTError, jwt
 from passlib.context import CryptContext
 from database import get_db
@@ -25,7 +25,7 @@ class RegisterRequest(BaseModel):
     name:       str
     email:      EmailStr
     phone:      Optional[str] = None
-    password: str
+    password:   str
     role:       str
     gender:     Optional[str] = 'L'
 
@@ -54,7 +54,7 @@ class UserOut(BaseModel):
     id:         int
     name:       str
     email:      str
-    phone:      Optional[str] = None  # Ditambahkan default value eksplisit
+    phone:      Optional[str] = None
     role:       str
     is_active:  bool
 
@@ -71,7 +71,7 @@ def hash_password(password):
 
 def create_access_token(data: dict):
     to_encode = data.copy()
-    expire = datetime.utcnow() + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+    expire = datetime.now(timezone.utc) + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
     to_encode["exp"] = expire
     to_encode["sub"] = str(to_encode["sub"])
     return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
@@ -184,7 +184,6 @@ def login(
     if not user or not verify_password(form.password, user.password):
         raise HTTPException(401, "Email atau password salah")
     if not user.is_active:
-        # Cek apakah pending approval atau memang dinonaktifkan
         if user.role in ["dokter", "apoteker"]:
             raise HTTPException(403, "Akun Anda sedang menunggu verifikasi admin. Harap tunggu.")
         raise HTTPException(403, "Akun tidak aktif. Hubungi admin.")
