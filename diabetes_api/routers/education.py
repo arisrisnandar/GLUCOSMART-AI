@@ -89,16 +89,22 @@ def _ensure_columns(db: Session):
         print(f"[education] _ensure_columns: {e}")
 
 
-# ── Save upload (Aman dari Path Traversal, Unsafe Filename & File Size DoS) ───
+# ── Save upload (Aman dari Filesystem Oracle, Path Traversal & DoS) ───────────
 def _save_upload(file: UploadFile, subfolder: str, base_url: str) -> str:
     folder = os.path.join(UPLOAD_DIR, subfolder)
     os.makedirs(folder, exist_ok=True)
     
-    raw_ext = os.path.splitext(file.filename or "")[1].lower()
-    allowed_extensions = {".jpg", ".jpeg", ".png", ".pdf", ".mp4", ".webp"}
-    ext = raw_ext if raw_ext in allowed_extensions else (".jpg" if subfolder == "posters" else ".pdf")
+    # Amankan filename dari path traversal dan ambil bagian nama aslinya saja
+    safe_filename = os.path.basename(file.filename or "")
+    raw_ext = os.path.splitext(safe_filename)[1].lower()
     
-    filename = f"{uuid.uuid4().hex}{ext}"
+    # Whitelist ekstensi ketat untuk mencegah eksekusi file berbahaya / Filesystem Oracle
+    allowed_extensions = {".jpg", ".jpeg", ".png", ".pdf", ".mp4", ".webp"}
+    if raw_ext not in allowed_extensions:
+        raise HTTPException(status_code=400, detail="Format atau ekstensi file tidak diizinkan")
+    
+    # Gunakan UUID murni untuk nama file fisik di server (mencegah informasi oracle / bentrok nama)
+    filename = f"{uuid.uuid4().hex}{raw_ext}"
     dest = os.path.join(folder, filename)
 
     MAX_FILE_SIZE = 10 * 1024 * 1024  # Batas maksimal file 10MB
