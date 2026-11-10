@@ -25,7 +25,9 @@ ALLOWED_SUBFOLDERS = {"posters", "pdfs"}
 ALLOWED_EXTENSIONS = {".jpg", ".jpeg", ".png", ".pdf", ".mp4", ".webp"}
 MAX_FILE_SIZE = 10 * 1024 * 1024  # 10MB
 
+# Pastikan direktori dasar ada
 BASE_UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+
 BASE_URL = os.getenv("BASE_URL", "").rstrip("/")
 
 # ── News cache & config ───────────────────────────────────────────────────────
@@ -48,6 +50,7 @@ _AUTO_CATEGORY_KEYWORDS = {
 
 
 def _is_safe_url(url: Optional[str]) -> bool:
+    """Validasi agar URL hanya menggunakan skema http atau https yang aman."""
     if not url:
         return True
     try:
@@ -57,6 +60,7 @@ def _is_safe_url(url: Optional[str]) -> bool:
         return False
 
 
+# ── Ensure kolom ──────────────────────────────────────────────────────────────
 def _ensure_columns(db: Session):
     try:
         inspector = inspect(db.bind)
@@ -70,41 +74,54 @@ def _ensure_columns(db: Session):
         db.commit()
     except Exception as e:
         db.rollback()
+        # Logging internal saja tanpa membocorkan detail sensitif ke response HTTP
         print(f"[education] _ensure_columns error: {e}")
 
 
-# ── Save upload (Perbaikan Filesystem Oracle) ────────────────────────────────
+# ── Save upload (Perbaikan Ketat Path Traversal & Filesystem Oracle) ──────────
 def _save_upload(file: UploadFile, subfolder: str, base_url: str) -> str:
     # 1. Validasi subfolder menggunakan WHITELIST
     if subfolder not in ALLOWED_SUBFOLDERS:
         raise HTTPException(status_code=400, detail="Gagal memproses file yang diunggah")
 
-    # 2. Amankan nama file asli dan ekstensi
-    safe_filename = os.path.basename(file.filename or "")
-    raw_ext = os.path.splitext(safe_filename)[1].lower()
+    # 2. Sanitasi nama file menggunakan Regex Whitelist
+    raw_filename = file.filename or ""
+    safe_filename = os.path.basename(raw_filename)
     
+    # Hanya izinkan huruf, angka, titik, dan garis bawah pada nama file asli
+    if not re.match(r"^[\w\-\.]+$", safe_filename):
+        raise HTTPException(status_code=400, detail="Gagal memproses file yang diunggah")
+
+    # 3. Validasi Ekstensi
+    raw_ext = os.path.splitext(safe_filename)[1].lower()
     if raw_ext not in ALLOWED_EXTENSIONS:
         raise HTTPException(status_code=400, detail="Format atau ekstensi file tidak diizinkan")
 
-    # 3. Buat path tujuan menggunakan pathlib
-    folder = BASE_UPLOAD_DIR / subfolder
-    filename = f"{uuid.uuid4().hex}{raw_ext}"
-    dest = folder / filename
+    # 4. Buat nama file baru yang SEPENUHNYA aman (Hanya UUID + ekstensi yang divalidasi)
+    safe_filename_generated = f"{uuid.uuid4().hex}{raw_ext}"
+    
+    # 5. Konstruksi Path menggunakan string literal yang sudah tervalidasi
+    base_path = str(BASE_UPLOAD_DIR)
+    folder_path = os.path.join(base_path, subfolder)
+    dest_path = os.path.join(folder_path, safe_filename_generated)
 
-    # 4. Validasi Path Traversal dengan resolusi path
-    try:
-        if not dest.resolve().is_relative_to(BASE_UPLOAD_DIR):
-            raise HTTPException(status_code=400, detail="Gagal memproses file yang diunggah")
-    except ValueError:
+    # 6. Validasi Path Traversal terakhir (memastikan dest_path ada di dalam base_path)
+    real_dest = os.path.realpath(dest_path)
+    real_base = os.path.realpath(base_path)
+    
+    if not real_dest.startswith(real_base + os.sep):
         raise HTTPException(status_code=400, detail="Gagal memproses file yang diunggah")
 
-    # 5. Buat direktori jika belum ada
-    folder.mkdir(parents=True, exist_ok=True)
+    # 7. Buat direktori jika belum ada
+    try:
+        os.makedirs(folder_path, exist_ok=True)
+    except Exception:
+        raise HTTPException(status_code=500, detail="Gagal memproses file yang diunggah")
 
-    # 6. Simpan file dengan batasan ukuran (Mencegah DoS)
+    # 8. Simpan file dengan batasan ukuran (Mencegah DoS)
     total_size = 0
     try:
-        with open(dest, "wb") as f:
+        with open(real_dest, "wb") as f:
             while True:
                 chunk = file.file.read(1024 * 64)
                 if not chunk:
@@ -115,20 +132,18 @@ def _save_upload(file: UploadFile, subfolder: str, base_url: str) -> str:
                 f.write(chunk)
     except HTTPException:
         # ── PERBAIKAN SONARQUBE: Hindari Filesystem Oracle ──
-        # Gunakan contextlib.suppress agar tidak memicu pengecekan eksistensi file
-        # yang bisa membocorkan informasi ke penyerang.
         with suppress(Exception):
-            if dest.is_file():
-                dest.unlink()
+            if os.path.isfile(real_dest):
+                os.unlink(real_dest)
         raise
     except Exception:
         with suppress(Exception):
-            if dest.is_file():
-                dest.unlink()
+            if os.path.isfile(real_dest):
+                os.unlink(real_dest)
         # Seragamkan semua pesan error internal
         raise HTTPException(status_code=500, detail="Gagal memproses file yang diunggah")
 
-    return f"{base_url}/static/education/{subfolder}/{filename}"
+    return f"{base_url}/static/education/{subfolder}/{safe_filename_generated}"
 
 
 # ── Notify async ──────────────────────────────────────────────────────────────
