@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from sqlalchemy import desc, func as sqlfunc
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import Optional, List
 from datetime import date, timedelta
 from database import get_db
@@ -13,14 +13,14 @@ router = APIRouter()
 class DietEntryCreate(BaseModel):
     entry_date:  Optional[date]  = None   # default: hari ini
     meal_type:   str                       # sarapan|makan_siang|makan_malam|snack
-    food_name:   str
-    portion:     Optional[str]   = None
-    calories:    int             = 0
-    carbs_g:     Optional[float] = None
-    protein_g:   Optional[float] = None
-    fat_g:       Optional[float] = None
-    gi_category: Optional[str]  = None    # rendah|sedang|tinggi
-    notes:       Optional[str]  = None
+    food_name:   str                       = Field(..., max_length=150)
+    portion:     Optional[str]   = Field(None, max_length=100)
+    calories:    int             = Field(0, ge=0, le=10000)
+    carbs_g:     Optional[float] = Field(None, ge=0, le=1000)
+    protein_g:   Optional[float] = Field(None, ge=0, le=1000)
+    fat_g:       Optional[float] = Field(None, ge=0, le=1000)
+    gi_category: Optional[str]   = Field(None, max_length=20)    # rendah|sedang|tinggi
+    notes:       Optional[str]   = Field(None, max_length=500)
 
 MEAL_ORDER = {"sarapan": 1, "makan_siang": 2, "makan_malam": 3, "snack": 4}
 
@@ -253,10 +253,112 @@ FOOD_DATABASE = [
 
 @router.get("/food-database")
 def get_food_database(
-    search: Optional[str] = None,
+    search: Optional[str] = Query(None, max_length=50),
     current_user: User = Depends(get_current_user)
 ):
-    # Validasi dan batasi pencarian untuk mencegah eksploitasi parameter loop
+    # Validasi dan batasi pencarian untuk mencegah eksploitasi parameter loop (Unchecked Input For Loop Condition)
     if search:
-        search_lower = search.lower().strip()[:50] # batasi panjang string pencarian
-        filtered = [f for f in FOOD_DATABASE
+        search_lower = search.lower().strip()
+        filtered = [f for f in FOOD_DATABASE if search_lower in f["name"].lower()]
+        return filtered[:50] # batasi hasil maksimal 50 item
+    return FOOD_DATABASE[:100] # batasi default maksimal 100 item
+
+@router.get("/entries")
+def get_diet_entries(
+    entry_date: Optional[date] = None,
+    limit: int = Query(default=30, ge=1, le=100), 
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    patient = db.query(Patient).filter(Patient.user_id == current_user.id).first()
+    if not patient:
+        raise HTTPException(status_code=404, detail="Data pasien tidak ditemukan")
+    
+    query = db.query(DietEntry).filter(DietEntry.patient_id == patient.id)
+    if entry_date:
+        query = query.filter(DietEntry.entry_date == entry_date)
+    
+    entries = query.order_by(desc(DietEntry.entry_date), desc(DietEntry.id)).limit(limit).all()
+    return entries
+
+@router.post("/entries", status_code=201)
+def create_diet_entry(
+    entry: DietEntryCreate,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    patient = db.query(Patient).filter(Patient.user_id == current_user.id).first()
+    if not patient:
+        raise HTTPException(status_code=404, detail="Data pasien tidak ditemukan")
+    
+    target_date = entry.entry_date if entry.entry_date else date.today()
+    
+    db_entry = DietEntry(
+        patient_id=patient.id,
+        entry_date=target_date,
+        meal_type=entry.meal_type,
+        food_name=entry.food_name,
+        portion=entry.portion,
+        calories=entry.calories,
+        carbs_g=entry.carbs_g,
+        protein_g=entry.protein_g,
+        fat_g=entry.fat_g,
+        gi_category=entry.gi_category,
+        notes=entry.notes
+    )
+    db.add(db_entry)
+    db.commit()
+    db.refresh(db_entry)
+    return db_entry
+
+@router.delete("/entries/{entry_id}")
+def delete_diet_entry(
+    entry_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    patient = db.query(Patient).filter(Patient.user_id == current_user.id).first()
+    if not patient:
+        raise HTTPException(status_code=404, detail="Data pasien tidak ditemukan")
+    
+    entry = db.query(DietEntry).filter(
+        DietEntry.id == entry_id,
+        DietEntry.patient_id == patient.id
+    ).first()
+    
+    if not entry:
+        raise HTTPException(status_code=404, detail="Catatan diet tidak ditemukan")
+    
+    db.delete(entry)
+    db.commit()
+    return {"message": "Catatan diet berhasil dihapus"}
+
+@router.get("/summary")
+def get_diet_summary(
+    target_date: Optional[date] = None,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    patient = db.query(Patient).filter(Patient.user_id == current_user.id).first()
+    if not patient:
+        raise HTTPException(status_code=404, detail="Data pasien tidak ditemukan")
+    
+    t_date = target_date if target_date else date.today()
+    entries = db.query(DietEntry).filter(
+        DietEntry.patient_id == patient.id,
+        DietEntry.entry_date == t_date
+    ).all()
+    
+    total_calories = sum(e.calories for e in entries)
+    total_carbs = sum(e.carbs_g for e in entries if e.carbs_g)
+    total_protein = sum(e.protein_g for e in entries if e.protein_g)
+    total_fat = sum(e.fat_g for e in entries if e.fat_g)
+    
+    return {
+        "date": t_date,
+        "total_calories": total_calories,
+        "total_carbs_g": total_carbs,
+        "total_protein_g": total_protein,
+        "total_fat_g": total_fat,
+        "entries_count": len(entries)
+    }
