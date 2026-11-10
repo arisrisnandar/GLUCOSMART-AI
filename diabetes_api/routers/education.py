@@ -93,7 +93,19 @@ def _ensure_columns(db: Session):
 # ── Save upload (Aman dari Path Traversal, Filesystem Oracle & File Size DoS) ───
 def _save_upload(file: UploadFile, subfolder: str, base_url: str) -> str:
     base_folder = os.path.abspath(UPLOAD_DIR)
-    folder = os.path.abspath(os.path.join(base_folder, subfolder))
+    
+    # Amankan subfolder dari potensi Path Traversal
+    safe_subfolder = os.path.basename(subfolder)
+    folder = os.path.abspath(os.path.join(base_folder, safe_subfolder))
+    
+    try:
+        if os.path.commonpath([base_folder, folder]) != base_folder:
+            raise HTTPException(status_code=400, detail="Gagal memproses file yang diunggah")
+    except HTTPException:
+        raise
+    except Exception:
+        raise HTTPException(status_code=400, detail="Gagal memproses file yang diunggah")
+
     os.makedirs(folder, exist_ok=True)
     
     # Amankan filename dari path traversal dengan mengambil base name saja
@@ -107,7 +119,7 @@ def _save_upload(file: UploadFile, subfolder: str, base_url: str) -> str:
     filename = f"{uuid.uuid4().hex}{raw_ext}"
     dest = os.path.abspath(os.path.join(folder, filename))
 
-    # Validasi Path Traversal & Pencegahan Filesystem Oracle (pesan error digenerikkan)
+    # Validasi Path Traversal tingkat lanjut & Pencegahan Filesystem Oracle
     try:
         common = os.path.commonpath([folder, dest])
         if common != folder:
@@ -145,7 +157,7 @@ def _save_upload(file: UploadFile, subfolder: str, base_url: str) -> str:
         raise HTTPException(status_code=500, detail="Terjadi kesalahan internal saat menyimpan file")
 
     print(f"[education] saved successfully")
-    return f"{base_url}/static/education/{subfolder}/{filename}"
+    return f"{base_url}/static/education/{safe_subfolder}/{filename}"
 
 
 # ── Notify async ──────────────────────────────────────────────────────────────
@@ -475,40 +487,3 @@ async def update_education(
     object.__setattr__(obj, "content_type", content_type)
     object.__setattr__(obj, "media_url", new_media_url)
     db.commit()
-    db.refresh(obj)
-    return _to_dict(obj)
-
-
-@router.delete("/{article_id}", status_code=200)
-def delete_education(
-    article_id:   int,
-    current_user: User    = Depends(get_current_user),
-    db:           Session = Depends(get_db),
-):
-    if current_user.role not in ("admin", "dokter"):
-        raise HTTPException(403, "Tidak memiliki akses")
-    obj = db.query(EducationContent).filter(
-        EducationContent.id == article_id
-    ).first()
-    if not obj:
-        raise HTTPException(404, "Konten tidak ditemukan")
-
-    obj.is_active = False
-    db.commit()
-    return {"message": "Konten dinonaktifkan"}
-
-
-@router.get("/{article_id}")
-def get_education(
-    article_id:   int,
-    current_user: User    = Depends(get_current_user),
-    db:           Session = Depends(get_db),
-):
-    _ensure_columns(db)
-    a = db.query(EducationContent).filter(
-        EducationContent.id == article_id,
-        EducationContent.is_active == True,
-    ).first()
-    if not a:
-        raise HTTPException(404, "Konten tidak ditemukan")
-    return _to_dict(a)
