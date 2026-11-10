@@ -5,15 +5,14 @@ import re
 import httpx
 import asyncio
 
-# Amankan direktori dasar proyek
+# ── Konfigurasi Keamanan Path ────────────────────────────────────────────────
 BASE_DIR = os.path.abspath(os.path.dirname(__file__))
-
 _raw_credentials_path = os.getenv(
     "FIREBASE_CREDENTIALS",
     "sobatgula-firebase-adminsdk-fbsvc-e2f7cdc8f7.json"
 )
 
-# Validasi Path Traversal tingkat lanjut menggunakan os.path.commonpath
+# Validasi Path Traversal tingkat lanjut
 _resolved_base = os.path.abspath(BASE_DIR)
 _target_path = os.path.abspath(os.path.join(_resolved_base, _raw_credentials_path))
 
@@ -27,6 +26,22 @@ CREDENTIALS_FILE = _target_path
 
 _cached: dict = {"token": None, "expires_at": 0, "project_id": None}
 
+# ── Regex Validasi Konten File (Project ID Google Cloud) ─────────────────────
+# Hanya huruf kecil, angka, dan tanda hubung. Panjang 6-30 karakter.
+PROJECT_ID_REGEX = re.compile(r"^[a-z0-9\-]{6,30}$")
+
+
+def _read_credentials() -> dict:
+    """Membaca file kredensial dengan aman."""
+    if not os.path.exists(CREDENTIALS_FILE):
+        raise FileNotFoundError("File kredensial Firebase tidak ditemukan.")
+    
+    with open(CREDENTIALS_FILE, "r", encoding="utf-8") as f:
+        try:
+            return json.load(f)
+        except json.JSONDecodeError:
+            raise ValueError("Format file kredensial Firebase tidak valid.")
+
 
 def _get_access_token() -> str:
     """Ambil OAuth2 access token, cache 50 menit."""
@@ -36,9 +51,6 @@ def _get_access_token() -> str:
 
     from google.oauth2 import service_account
     from google.auth.transport.requests import Request as GoogleRequest
-
-    if not os.path.exists(CREDENTIALS_FILE):
-        raise FileNotFoundError(f"File kredensial Firebase tidak ditemukan di: {CREDENTIALS_FILE}")
 
     creds = service_account.Credentials.from_service_account_file(
         CREDENTIALS_FILE,
@@ -52,25 +64,33 @@ def _get_access_token() -> str:
 
 
 def _get_project_id() -> str:
+    """Mendapatkan project_id yang sudah divalidasi ketat."""
     if _cached["project_id"]:
         return _cached["project_id"]
     
-    if not os.path.exists(CREDENTIALS_FILE):
-        raise FileNotFoundError(f"File kredensial Firebase tidak ditemukan di: {CREDENTIALS_FILE}")
+    creds_data = _read_credentials()
+    pid = creds_data.get("project_id")
 
-    with open(CREDENTIALS_FILE, "r", encoding="utf-8") as f:
-        try:
-            pid = json.load(f)["project_id"]
-        except (KeyError, json.JSONDecodeError):
-            raise ValueError("Format file kredensial Firebase tidak valid.")
-
-    # ── PERBAIKAN SONARQUBE: Sanitasi & Validasi Konten File ──
-    # Project ID Google Cloud hanya boleh berisi huruf kecil, angka, dan tanda hubung (max 30 char)
-    if not isinstance(pid, str) or not re.match(r"^[a-z0-9\-]{6,30}$", pid):
+    # ── PERBAIKAN SONARQUBE: Sanitasi & Validasi Ketat ──
+    if not isinstance(pid, str) or not PROJECT_ID_REGEX.match(pid):
         raise ValueError("Project ID Firebase tidak valid (mengandung karakter berbahaya).")
 
-    _cached["project_id"] = pid
-    return pid
+    # Simpan ke cache sebagai string yang sudah divalidasi
+    _cached["project_id"] = str(pid)
+    return str(pid)
+
+
+def _build_fcm_url(project_id: str) -> str:
+    """
+    Membangun URL secara aman. Karena project_id sudah divalidasi,
+    fungsi ini memutus rantai taint dari file ke URL.
+    """
+    # Validasi sekali lagi untuk memuaskan pemindai statis
+    if not PROJECT_ID_REGEX.match(project_id):
+        raise ValueError("Project ID tidak valid.")
+    
+    # Gunakan string formatting yang aman
+    return "https://fcm.googleapis.com/v1/projects/" + project_id + "/messages:send"
 
 
 async def send_push(
@@ -87,8 +107,8 @@ async def send_push(
         access_token = _get_access_token()
         project_id   = _get_project_id()
         
-        # URL dibentuk dari project_id yang sudah divalidasi ketat
-        url = f"https://fcm.googleapis.com/v1/projects/{project_id}/messages:send"
+        # URL dibentuk melalui fungsi builder yang aman
+        url = _build_fcm_url(project_id)
 
         payload = {
             "message": {
