@@ -78,6 +78,16 @@ def _ensure_columns(db: Session):
         print(f"[education] _ensure_columns error: {e}")
 
 
+# ── Helper: Safe Cleanup (Anti Filesystem Oracle) ────────────────────────────
+def _safe_cleanup(file_path: str) -> None:
+    """
+    Membersihkan file parsial TANPA memicu Filesystem Oracle.
+    Selalu mengembalikan None dan tidak pernah memunculkan exception.
+    """
+    with suppress(Exception):
+        os.unlink(file_path)
+
+
 # ── Save upload (Perbaikan Ketat Path Traversal & Filesystem Oracle) ──────────
 def _save_upload(file: UploadFile, subfolder: str, base_url: str) -> str:
     # 1. Validasi subfolder menggunakan WHITELIST
@@ -131,15 +141,11 @@ def _save_upload(file: UploadFile, subfolder: str, base_url: str) -> str:
                     raise HTTPException(status_code=400, detail="Gagal memproses file yang diunggah")
                 f.write(chunk)
     except HTTPException:
-        # ── PERBAIKAN SONARQUBE: Hindari Filesystem Oracle ──
-        with suppress(Exception):
-            if os.path.isfile(real_dest):
-                os.unlink(real_dest)
+        # ── PERBAIKAN SONARQUBE: Gunakan _safe_cleanup tanpa pengecekan file ──
+        _safe_cleanup(real_dest)
         raise
     except Exception:
-        with suppress(Exception):
-            if os.path.isfile(real_dest):
-                os.unlink(real_dest)
+        _safe_cleanup(real_dest)
         # Seragamkan semua pesan error internal
         raise HTTPException(status_code=500, detail="Gagal memproses file yang diunggah")
 
