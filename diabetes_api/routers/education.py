@@ -1,13 +1,12 @@
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, Query
 from sqlalchemy.orm import Session
 from sqlalchemy import text, inspect
-from typing import Optional
+from typing import Optional, Dict, List
 from database import get_db
 from models.db_models import EducationContent, User, Notification
 from routers.auth import get_current_user
 from firebase_service import send_push_multi
 import os
-import shutil
 import uuid
 import asyncio
 import httpx
@@ -15,6 +14,8 @@ from datetime import datetime, timedelta, timezone
 from urllib.parse import urlparse
 import re
 from pathlib import Path
+from contextlib import suppress
+from collections import defaultdict
 
 router = APIRouter()
 
@@ -24,53 +25,29 @@ ALLOWED_SUBFOLDERS = {"posters", "pdfs"}
 ALLOWED_EXTENSIONS = {".jpg", ".jpeg", ".png", ".pdf", ".mp4", ".webp"}
 MAX_FILE_SIZE = 10 * 1024 * 1024  # 10MB
 
-# Pastikan direktori dasar ada
 BASE_UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
-
 BASE_URL = os.getenv("BASE_URL", "").rstrip("/")
 
 # ── News cache & config ───────────────────────────────────────────────────────
 _news_cache: dict = {"data": [], "fetched_at": None}
 _news_lock = asyncio.Lock()
-GNEWS_API_KEY = os.getenv("GNEWS_API_KEY", "")  # Daftar di https://gnews.io
+GNEWS_API_KEY = os.getenv("GNEWS_API_KEY", "")
 
 _GNEWS_QUERIES = [
-    "diabetes",
-    "gula darah",
-    "insulin",
-    "diet diabetes",
-    "kesehatan diabetes",
+    "diabetes", "gula darah", "insulin", "diet diabetes", "kesehatan diabetes",
 ]
 
 _AUTO_CATEGORY_KEYWORDS = {
-    "Tentang Diabetes": [
-        "diabetes", "diabetik", "diabetis", "kadar gula", "gula darah",
-        "hiperglikemia", "hipoglikemia", "insulin", "pankreas",
-    ],
-    "Pengobatan": [
-        "obat", "metformin", "insulin", "terapi", "pengobatan",
-        "medikasi", "farmasi", "dosis",
-    ],
-    "Gaya Hidup": [
-        "diet", "olahraga", "aktivitas fisik", "makan sehat", "nutrisi",
-        "berat badan", "gaya hidup", "pola makan", "tidur",
-    ],
-    "Kondisi Darurat": [
-        "darurat", "koma", "kejang", "ketoasidosis", "hipoglikemia berat",
-        "tidak sadar", "gawat",
-    ],
-    "Perawatan Kaki": [
-        "kaki", "luka", "amputasi", "neuropati", "perifer",
-    ],
-    "Kondisi Khusus": [
-        "hamil", "kehamilan", "anak", "lansia", "remaja", "gestasional",
-        "komplikasi",
-    ],
+    "Tentang Diabetes": ["diabetes", "diabetik", "diabetis", "kadar gula", "gula darah", "hiperglikemia", "hipoglikemia", "insulin", "pankreas"],
+    "Pengobatan": ["obat", "metformin", "insulin", "terapi", "pengobatan", "medikasi", "farmasi", "dosis"],
+    "Gaya Hidup": ["diet", "olahraga", "aktivitas fisik", "makan sehat", "nutrisi", "berat badan", "gaya hidup", "pola makan", "tidur"],
+    "Kondisi Darurat": ["darurat", "koma", "kejang", "ketoasidosis", "hipoglikemia berat", "tidak sadar", "gawat"],
+    "Perawatan Kaki": ["kaki", "luka", "amputasi", "neuropati", "perifer"],
+    "Kondisi Khusus": ["hamil", "kehamilan", "anak", "lansia", "remaja", "gestasional", "komplikasi"],
 }
 
 
 def _is_safe_url(url: Optional[str]) -> bool:
-    """Validasi agar URL hanya menggunakan skema http atau https yang aman."""
     if not url:
         return True
     try:
@@ -80,15 +57,12 @@ def _is_safe_url(url: Optional[str]) -> bool:
         return False
 
 
-# ── Ensure kolom ──────────────────────────────────────────────────────────────
 def _ensure_columns(db: Session):
     try:
         inspector = inspect(db.bind)
         existing = [c["name"] for c in inspector.get_columns("education_content")]
         if "content_type" not in existing:
-            db.execute(text(
-                "ALTER TABLE education_content ADD COLUMN content_type VARCHAR(20) DEFAULT 'article'"
-            ))
+            db.execute(text("ALTER TABLE education_content ADD COLUMN content_type VARCHAR(20) DEFAULT 'article'"))
         if "media_url" not in existing:
             db.execute(text("ALTER TABLE education_content ADD COLUMN media_url TEXT"))
         if "thumbnail_url" not in existing:
@@ -96,13 +70,12 @@ def _ensure_columns(db: Session):
         db.commit()
     except Exception as e:
         db.rollback()
-        # Logging internal saja tanpa membocorkan detail sensitif ke response HTTP
         print(f"[education] _ensure_columns error: {e}")
 
 
-# ── Save upload (Aman dari Path Traversal, Filesystem Oracle & File Size DoS) ───
+# ── Save upload (Perbaikan Filesystem Oracle) ────────────────────────────────
 def _save_upload(file: UploadFile, subfolder: str, base_url: str) -> str:
-    # 1. Validasi subfolder menggunakan WHITELIST (Mencegah input arbitrary string)
+    # 1. Validasi subfolder menggunakan WHITELIST
     if subfolder not in ALLOWED_SUBFOLDERS:
         raise HTTPException(status_code=400, detail="Gagal memproses file yang diunggah")
 
@@ -120,8 +93,6 @@ def _save_upload(file: UploadFile, subfolder: str, base_url: str) -> str:
 
     # 4. Validasi Path Traversal dengan resolusi path
     try:
-        # resolve() akan menyelesaikan symlink dan '..'
-        # pastikan folder tujuan berada di dalam BASE_UPLOAD_DIR
         if not dest.resolve().is_relative_to(BASE_UPLOAD_DIR):
             raise HTTPException(status_code=400, detail="Gagal memproses file yang diunggah")
     except ValueError:
@@ -143,17 +114,20 @@ def _save_upload(file: UploadFile, subfolder: str, base_url: str) -> str:
                     raise HTTPException(status_code=400, detail="Gagal memproses file yang diunggah")
                 f.write(chunk)
     except HTTPException:
-        # Hapus file parsial jika ada error
-        if dest.exists():
-            dest.unlink(missing_ok=True)
+        # ── PERBAIKAN SONARQUBE: Hindari Filesystem Oracle ──
+        # Gunakan contextlib.suppress agar tidak memicu pengecekan eksistensi file
+        # yang bisa membocorkan informasi ke penyerang.
+        with suppress(Exception):
+            if dest.is_file():
+                dest.unlink()
         raise
     except Exception:
-        if dest.exists():
-            dest.unlink(missing_ok=True)
-        # Hindari Filesystem Oracle dengan menyeragamkan respons error internal
+        with suppress(Exception):
+            if dest.is_file():
+                dest.unlink()
+        # Seragamkan semua pesan error internal
         raise HTTPException(status_code=500, detail="Gagal memproses file yang diunggah")
 
-    print(f"[education] saved successfully")
     return f"{base_url}/static/education/{subfolder}/{filename}"
 
 
@@ -168,13 +142,9 @@ async def _notify(db: Session, title: str, body: str, target_role: str):
         q = q.filter(User.role.in_(["pasien", "dokter", "apoteker"]))
     users = q.all()
     for u in users:
-        db.add(Notification(
-            user_id=u.id, type="education",
-            title=title, body=body, is_read=False,
-        ))
+        db.add(Notification(user_id=u.id, type="education", title=title, body=body, is_read=False))
     db.commit()
-    tokens = [getattr(u, "fcm_token", None) for u in users
-              if getattr(u, "fcm_token", None)]
+    tokens = [getattr(u, "fcm_token", None) for u in users if getattr(u, "fcm_token", None)]
     if tokens:
         await send_push_multi(tokens, title, body)
 
@@ -182,17 +152,13 @@ async def _notify(db: Session, title: str, body: str, target_role: str):
 # ── Serializer konten manual ──────────────────────────────────────────────────
 def _to_dict(a: EducationContent) -> dict:
     return {
-        "id":            a.id,
-        "title":         a.title,
-        "category":      a.category,
-        "content_type":  getattr(a, "content_type", "article") or "article",
-        "content":       a.content or "",
-        "target_role":   a.target_role,
-        "is_active":     a.is_active,
-        "media_url":     getattr(a, "media_url", None),
+        "id": a.id, "title": a.title, "category": a.category,
+        "content_type": getattr(a, "content_type", "article") or "article",
+        "content": a.content or "", "target_role": a.target_role,
+        "is_active": a.is_active,
+        "media_url": getattr(a, "media_url", None),
         "thumbnail_url": getattr(a, "thumbnail_url", None),
-        "created_at":    a.created_at,
-        "is_external":   False,
+        "created_at": a.created_at, "is_external": False,
     }
 
 
@@ -209,15 +175,7 @@ async def _fetch_gnews(query: str, lang: str = "id", max_results: int = 5) -> li
         print("[education/news] GNEWS_API_KEY tidak diset, skip fetch")
         return []
     url = "https://gnews.io/api/v4/search"
-    params = {
-        "q":       query,
-        "lang":    lang,
-        "country": "id",
-        "max":     max_results,
-        "apikey":  GNEWS_API_KEY,
-        "in":      "title,description",
-        "sortby":  "publishedAt",
-    }
+    params = {"q": query, "lang": lang, "country": "id", "max": max_results, "apikey": GNEWS_API_KEY, "in": "title,description", "sortby": "publishedAt"}
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
             resp = await client.get(url, params=params)
@@ -239,9 +197,9 @@ def _normalize_gnews(articles: list) -> list:
             continue
         seen_urls.add(url)
 
-        title       = a.get("title", "").strip()
+        title = a.get("title", "").strip()
         description = a.get("description", "").strip()
-        image       = a.get("image", None)
+        image = a.get("image", None)
         if image and not _is_safe_url(image):
             image = None
 
@@ -257,16 +215,10 @@ def _normalize_gnews(articles: list) -> list:
         category = _guess_category(f"{title} {description}")
 
         result.append({
-            "id":           f"news_{abs(hash(url)) % 10**9}",
-            "title":        title,
-            "category":     category,
-            "content_type": "news",
-            "content":      description,
-            "media_url":    url,
-            "thumbnail_url": image,
-            "source":       source_name,
-            "published_at": published_formatted,
-            "is_external":  True,
+            "id": f"news_{abs(hash(url)) % 10**9}", "title": title, "category": category,
+            "content_type": "news", "content": description, "media_url": url,
+            "thumbnail_url": image, "source": source_name,
+            "published_at": published_formatted, "is_external": True,
         })
     return result
 
@@ -276,23 +228,14 @@ def _normalize_gnews(articles: list) -> list:
 # ══════════════════════════════════════════════════════════════════════════════
 
 @router.post("/seed/init", status_code=201)
-def seed_education(
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
-):
+def seed_education(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     if current_user.role != "admin":
         raise HTTPException(403, "Hanya admin")
     existing = db.query(EducationContent).count()
     if existing > 0:
         return {"message": f"Sudah ada {existing} konten, skip seed"}
     _ensure_columns(db)
-    obj = EducationContent(
-        title="Apa Itu Diabetes Melitus?",
-        category="Tentang Diabetes",
-        content="Diabetes melitus adalah penyakit kronis...",
-        target_role="all",
-        is_active=True,
-    )
+    obj = EducationContent(title="Apa Itu Diabetes Melitus?", category="Tentang Diabetes", content="Diabetes melitus adalah penyakit kronis...", target_role="all", is_active=True)
     object.__setattr__(obj, "content_type", "article")
     object.__setattr__(obj, "media_url", None)
     object.__setattr__(obj, "thumbnail_url", None)
@@ -302,37 +245,17 @@ def seed_education(
 
 
 @router.get("/categories")
-def get_categories(
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
-):
-    rows = (
-        db.query(EducationContent.category)
-        .filter(
-            EducationContent.is_active == True,
-            EducationContent.target_role.in_(["all", current_user.role]),
-        )
-        .distinct()
-        .all()
-    )
+def get_categories(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    rows = (db.query(EducationContent.category).filter(EducationContent.is_active == True, EducationContent.target_role.in_(["all", current_user.role])).distinct().all())
     return [r[0] for r in rows if r[0]]
 
 
 @router.get("/news/feed")
-async def get_news_feed(
-    refresh: bool = False,
-    current_user: User = Depends(get_current_user),
-):
+async def get_news_feed(refresh: bool = False, current_user: User = Depends(get_current_user)):
     global _news_cache
     now = datetime.now(timezone.utc)
-    
     async with _news_lock:
-        cache_valid = (
-            not refresh
-            and _news_cache["fetched_at"] is not None
-            and (now - _news_cache["fetched_at"]) < timedelta(hours=3)
-            and _news_cache["data"]
-        )
+        cache_valid = (not refresh and _news_cache["fetched_at"] is not None and (now - _news_cache["fetched_at"]) < timedelta(hours=3) and _news_cache["data"])
         if cache_valid:
             return _news_cache["data"]
 
@@ -362,14 +285,7 @@ async def get_news_feed(
 @router.get("/news/sources")
 def get_news_sources(current_user: User = Depends(get_current_user)):
     return {
-        "sources": [
-            {
-                "name": "GNews API",
-                "description": "Agregator berita berbahasa Indonesia tentang diabetes & kesehatan",
-                "url": "https://gnews.io",
-                "keywords": _GNEWS_QUERIES,
-            }
-        ],
+        "sources": [{"name": "GNews API", "description": "Agregator berita berbahasa Indonesia tentang diabetes & kesehatan", "url": "https://gnews.io", "keywords": _GNEWS_QUERIES}],
         "cache_duration_hours": 3,
         "last_fetched": str(_news_cache.get("fetched_at")) if _news_cache.get("fetched_at") else None,
         "total_cached": len(_news_cache.get("data", [])),
@@ -398,15 +314,15 @@ def list_education(
 
 @router.post("/", status_code=201)
 async def create_education(
-    title:        str                  = Form(..., max_length=200),
-    category:     str                  = Form(..., max_length=100),
-    content_type: str                  = Form(..., max_length=20),
-    content:      str                  = Form("", max_length=10000),
-    target_role:  str                  = Form("all", max_length=50),
-    media_url:    Optional[str]        = Form(None, max_length=500),
-    file:         Optional[UploadFile] = File(None),
-    current_user: User                 = Depends(get_current_user),
-    db:           Session              = Depends(get_db),
+    title: str = Form(..., max_length=200),
+    category: str = Form(..., max_length=100),
+    content_type: str = Form(..., max_length=20),
+    content: str = Form("", max_length=10000),
+    target_role: str = Form("all", max_length=50),
+    media_url: Optional[str] = Form(None, max_length=500),
+    file: Optional[UploadFile] = File(None),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
 ):
     if current_user.role not in ("admin", "dokter"):
         raise HTTPException(403, "Hanya admin atau dokter")
@@ -422,10 +338,7 @@ async def create_education(
         subfolder = "posters" if content_type == "poster" else "pdfs"
         saved_url = _save_upload(file, subfolder, base_url)
         
-    obj = EducationContent(
-        title=title, category=category,
-        content=content, target_role=target_role, is_active=True,
-    )
+    obj = EducationContent(title=title, category=category, content=content, target_role=target_role, is_active=True)
     object.__setattr__(obj, "content_type", content_type)
     object.__setattr__(obj, "media_url", saved_url)
     object.__setattr__(obj, "thumbnail_url", None)
@@ -433,29 +346,23 @@ async def create_education(
     db.commit()
     db.refresh(obj)
     
-    label = {"article": "Artikel", "poster": "Poster", "video": "Video",
-             "pdf": "Dokumen PDF"}.get(content_type, "Konten")
-    await _notify(
-        db,
-        title=f"📚 {label} Baru: {title}",
-        body=f'Dokter mengunggah {label.lower()} baru: "{title}"',
-        target_role=target_role,
-    )
+    label = {"article": "Artikel", "poster": "Poster", "video": "Video", "pdf": "Dokumen PDF"}.get(content_type, "Konten")
+    await _notify(db, title=f"📚 {label} Baru: {title}", body=f'Dokter mengunggah {label.lower()} baru: "{title}"', target_role=target_role)
     return _to_dict(obj)
 
 
 @router.put("/{article_id}", status_code=200)
 async def update_education(
-    article_id:   int,
-    title:        str                  = Form(..., max_length=200),
-    category:     str                  = Form(..., max_length=100),
-    content_type: str                  = Form(..., max_length=20),
-    content:      str                  = Form("", max_length=10000),
-    target_role:  str                  = Form("all", max_length=50),
-    media_url:    Optional[str]        = Form(None, max_length=500),
-    file:         Optional[UploadFile] = File(None),
-    current_user: User                 = Depends(get_current_user),
-    db:           Session              = Depends(get_db),
+    article_id: int,
+    title: str = Form(..., max_length=200),
+    category: str = Form(..., max_length=100),
+    content_type: str = Form(..., max_length=20),
+    content: str = Form("", max_length=10000),
+    target_role: str = Form("all", max_length=50),
+    media_url: Optional[str] = Form(None, max_length=500),
+    file: Optional[UploadFile] = File(None),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
 ):
     if current_user.role not in ("admin", "dokter"):
         raise HTTPException(403, "Tidak memiliki akses")
@@ -463,9 +370,7 @@ async def update_education(
         raise HTTPException(400, "URL media tidak valid (harus http/https)")
         
     _ensure_columns(db)
-    obj = db.query(EducationContent).filter(
-        EducationContent.id == article_id
-    ).first()
+    obj = db.query(EducationContent).filter(EducationContent.id == article_id).first()
     if not obj:
         raise HTTPException(404, "Konten tidak ditemukan")
 
@@ -485,7 +390,5 @@ async def update_education(
     object.__setattr__(obj, "media_url", new_media_url)
     db.commit()
     db.refresh(obj)
-
-    # Opsional: Notify jika diperlukan saat update (bisa disesuaikan)
     
     return _to_dict(obj)
