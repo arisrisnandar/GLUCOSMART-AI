@@ -11,7 +11,7 @@ from routers.auth import get_current_user
 router = APIRouter()
 
 class DietEntryCreate(BaseModel):
-    entry_date:  Optional[date]  = None   # default: hari ini
+    entry_date:  Optional[date]  = None    # default: hari ini
     meal_type:   str                       # sarapan|makan_siang|makan_malam|snack
     food_name:   str                       = Field(..., max_length=150)
     portion:     Optional[str]   = Field(None, max_length=100)
@@ -39,8 +39,8 @@ FOOD_DATABASE = [
     {"name": "Mie Rebus", "portion": "1 porsi", "calories": 280, "carbs_g": 42.0, "protein_g": 8.0, "fat_g": 9.0, "gi_category": "tinggi"},
     {"name": "Indomie Goreng", "portion": "1 bungkus", "calories": 350, "carbs_g": 50.0, "protein_g": 8.0, "fat_g": 14.0, "gi_category": "tinggi"},
     {"name": "Kwetiau Goreng", "portion": "1 porsi", "calories": 320, "carbs_g": 45.0, "protein_g": 9.0, "fat_g": 12.0, "gi_category": "tinggi"},
-    {"name": "Kentang Rebus",      "portion": "1 buah (150g)",   "calories": 130, "carbs_g": 30.0, "protein_g": 3.0,  "fat_g": 0.1,  "gi_category": "sedang"},
-    {"name": "Ubi Jalar Rebus",    "portion": "1 buah (150g)",   "calories": 145, "carbs_g": 33.0, "protein_g": 2.5,  "fat_g": 0.1,  "gi_category": "rendah"},
+    {"name": "Kentang Rebus",      "portion": "1 buah (150g)",    "calories": 130, "carbs_g": 30.0, "protein_g": 3.0,  "fat_g": 0.1,  "gi_category": "sedang"},
+    {"name": "Ubi Jalar Rebus",    "portion": "1 buah (150g)",    "calories": 145, "carbs_g": 33.0, "protein_g": 2.5,  "fat_g": 0.1,  "gi_category": "rendah"},
     {"name": "Lontong", "portion": "1 buah (150g)", "calories": 130, "carbs_g": 28.0, "protein_g": 3.0, "fat_g": 0.5, "gi_category": "sedang"},
     {"name": "Ketupat", "portion": "1 buah (150g)", "calories": 160, "carbs_g": 35.0, "protein_g": 4.0, "fat_g": 0.5, "gi_category": "sedang"},
     {"name": "Bubur Ayam", "portion": "1 mangkuk", "calories": 165, "carbs_g": 25.0, "protein_g": 8.0, "fat_g": 5.0, "gi_category": "sedang"},
@@ -69,15 +69,15 @@ FOOD_DATABASE = [
     {"name": "Granola", "portion": "1/2 cup (50g)", "calories": 220, "carbs_g": 32.0, "protein_g": 5.0, "fat_g": 8.0, "gi_category": "sedang"},
 
     # Lauk protein
-    {"name": "Ayam Goreng",        "portion": "1 potong (80g)",  "calories": 246, "carbs_g": 5.0,  "protein_g": 21.0, "fat_g": 16.0, "gi_category": "rendah"},
-    {"name": "Ayam Bakar",         "portion": "1 potong (80g)",  "calories": 180, "carbs_g": 2.0,  "protein_g": 25.0, "fat_g": 8.0,  "gi_category": "rendah"},
-    {"name": "Ikan Goreng",        "portion": "1 ekor (100g)",   "calories": 196, "carbs_g": 4.0,  "protein_g": 22.0, "fat_g": 11.0, "gi_category": "rendah"},
-    {"name": "Ikan Bakar",         "portion": "1 ekor (100g)",   "calories": 150, "carbs_g": 0.0,  "protein_g": 25.0, "fat_g": 5.0,  "gi_category": "rendah"},
-    {"name": "Telur Goreng",       "portion": "1 butir (55g)",   "calories": 108, "carbs_g": 0.5,  "protein_g": 7.5,  "fat_g": 8.5,  "gi_category": "rendah"},
-    {"name": "Telur Rebus",        "portion": "1 butir (55g)",   "calories": 78,  "carbs_g": 0.6,  "protein_g": 6.3,  "fat_g": 5.3,  "gi_category": "rendah"},
-    {"name": "Tempe Goreng",       "portion": "2 potong (50g)",  "calories": 100, "carbs_g": 6.5,  "protein_g": 9.0,  "fat_g": 5.0,  "gi_category": "rendah"},
-    {"name": "Tahu Goreng",        "portion": "2 potong (100g)", "calories": 117, "carbs_g": 4.0,  "protein_g": 8.0,  "fat_g": 8.0,  "gi_category": "rendah"},
-    {"name": "Daging Sapi",        "portion": "1 porsi (80g)",   "calories": 170, "carbs_g": 0.0,  "protein_g": 22.0, "fat_g": 9.0,  "gi_category": "rendah"},
+    {"name": "Ayam Goreng",         "portion": "1 potong (80g)",  "calories": 246, "carbs_g": 5.0,  "protein_g": 21.0, "fat_g": 16.0, "gi_category": "rendah"},
+    {"name": "Ayam Bakar",          "portion": "1 potong (80g)",  "calories": 180, "carbs_g": 2.0,  "protein_g": 25.0, "fat_g": 8.0,  "gi_category": "rendah"},
+    {"name": "Ikan Goreng",         "portion": "1 ekor (100g)",   "calories": 196, "carbs_g": 4.0,  "protein_g": 22.0, "fat_g": 11.0, "gi_category": "rendah"},
+    {"name": "Ikan Bakar",          "portion": "1 ekor (100g)",   "calories": 150, "carbs_g": 0.0,  "protein_g": 25.0, "fat_g": 5.0,  "gi_category": "rendah"},
+    {"name": "Telur Goreng",        "portion": "1 butir (55g)",   "calories": 108, "carbs_g": 0.5,  "protein_g": 7.5,  "fat_g": 8.5,  "gi_category": "rendah"},
+    {"name": "Telur Rebus",         "portion": "1 butir (55g)",   "calories": 78,  "carbs_g": 0.6,  "protein_g": 6.3,  "fat_g": 5.3,  "gi_category": "rendah"},
+    {"name": "Tempe Goreng",        "portion": "2 potong (50g)",  "calories": 100, "carbs_g": 6.5,  "protein_g": 9.0,  "fat_g": 5.0,  "gi_category": "rendah"},
+    {"name": "Tahu Goreng",         "portion": "2 potong (100g)", "calories": 117, "carbs_g": 4.0,  "protein_g": 8.0,  "fat_g": 8.0,  "gi_category": "rendah"},
+    {"name": "Daging Sapi",         "portion": "1 porsi (80g)",   "calories": 170, "carbs_g": 0.0,  "protein_g": 22.0, "fat_g": 9.0,  "gi_category": "rendah"},
     {"name": "Rendang", "portion": "100g", "calories": 350, "carbs_g": 5.0, "protein_g": 20.0, "fat_g": 28.0, "gi_category": "rendah"},
     {"name": "Opor Ayam", "portion": "1 porsi", "calories": 280, "carbs_g": 6.0, "protein_g": 18.0, "fat_g": 22.0, "gi_category": "rendah"},
     {"name": "Gulai Ayam", "portion": "1 porsi", "calories": 320, "carbs_g": 8.0, "protein_g": 20.0, "fat_g": 25.0, "gi_category": "rendah"},
@@ -113,9 +113,9 @@ FOOD_DATABASE = [
     {"name": "Sosis Sapi Goreng", "portion": "2 buah (80g)", "calories": 240, "carbs_g": 8.0, "protein_g": 10.0, "fat_g": 19.0, "gi_category": "sedang"},
 
     # Sayuran
-    {"name": "Sayur Bayam",        "portion": "1 mangkok (100g)","calories": 22,  "carbs_g": 3.5,  "protein_g": 2.3,  "fat_g": 0.3,  "gi_category": "rendah"},
-    {"name": "Tumis Kangkung",     "portion": "1 porsi (100g)",  "calories": 45,  "carbs_g": 5.0,  "protein_g": 2.5,  "fat_g": 2.0,  "gi_category": "rendah"},
-    {"name": "Sayur Sop",          "portion": "1 mangkok (200g)","calories": 80,  "carbs_g": 12.0, "protein_g": 4.0,  "fat_g": 2.0,  "gi_category": "rendah"},
+    {"name": "Sayur Bayam",         "portion": "1 mangkok (100g)","calories": 22,  "carbs_g": 3.5,  "protein_g": 2.3,  "fat_g": 0.3,  "gi_category": "rendah"},
+    {"name": "Tumis Kangkung",      "portion": "1 porsi (100g)",  "calories": 45,  "carbs_g": 5.0,  "protein_g": 2.5,  "fat_g": 2.0,  "gi_category": "rendah"},
+    {"name": "Sayur Sop",           "portion": "1 mangkok (200g)","calories": 80,  "carbs_g": 12.0, "protein_g": 4.0,  "fat_g": 2.0,  "gi_category": "rendah"},
     {"name": "Sayur Asem", "portion": "1 mangkuk", "calories": 80, "carbs_g": 12.0, "protein_g": 3.0, "fat_g": 2.0, "gi_category": "rendah"},
     {"name": "Sayur Lodeh", "portion": "1 mangkuk", "calories": 150, "carbs_g": 10.0, "protein_g": 4.0, "fat_g": 10.0, "gi_category": "rendah"},
     {"name": "Capcay", "portion": "1 porsi", "calories": 120, "carbs_g": 15.0, "protein_g": 5.0, "fat_g": 5.0, "gi_category": "rendah"},
@@ -185,11 +185,11 @@ FOOD_DATABASE = [
     {"name": "Mie Lidi Pedas", "portion": "1 bungkus (50g)", "calories": 250, "carbs_g": 30.0, "protein_g": 4.0, "fat_g": 13.0, "gi_category": "tinggi"},
 
     # Buah
-    {"name": "Pisang",             "portion": "1 buah (100g)",   "calories": 89,  "carbs_g": 23.0, "protein_g": 1.1,  "fat_g": 0.3,  "gi_category": "sedang"},
-    {"name": "Apel",               "portion": "1 buah (150g)",   "calories": 78,  "carbs_g": 21.0, "protein_g": 0.4,  "fat_g": 0.2,  "gi_category": "rendah"},
+    {"name": "Pisang",             "portion": "1 buah (100g)",    "calories": 89,  "carbs_g": 23.0, "protein_g": 1.1,  "fat_g": 0.3,  "gi_category": "sedang"},
+    {"name": "Apel",               "portion": "1 buah (150g)",    "calories": 78,  "carbs_g": 21.0, "protein_g": 0.4,  "fat_g": 0.2,  "gi_category": "rendah"},
     {"name": "Pepaya",             "portion": "1 potong (200g)", "calories": 80,  "carbs_g": 20.0, "protein_g": 0.9,  "fat_g": 0.1,  "gi_category": "rendah"},
     {"name": "Semangka",           "portion": "1 potong (200g)", "calories": 62,  "carbs_g": 15.6, "protein_g": 1.2,  "fat_g": 0.2,  "gi_category": "tinggi"},
-    {"name": "Jeruk",              "portion": "1 buah (130g)",   "calories": 47,  "carbs_g": 12.0, "protein_g": 0.9,  "fat_g": 0.1,  "gi_category": "rendah"},
+    {"name": "Jeruk",              "portion": "1 buah (130g)",    "calories": 47,  "carbs_g": 12.0, "protein_g": 0.9,  "fat_g": 0.1,  "gi_category": "rendah"},
     {"name": "Alpukat", "portion": "1/2 buah (100g)", "calories": 160, "carbs_g": 8.5, "protein_g": 2.0, "fat_g": 14.7, "gi_category": "rendah"},
     {"name": "Mangga", "portion": "1 buah (200g)", "calories": 120, "carbs_g": 30.0, "protein_g": 1.6, "fat_g": 0.8, "gi_category": "sedang"},
     {"name": "Durian", "portion": "3 biji (100g)", "calories": 147, "carbs_g": 27.0, "protein_g": 1.5, "fat_g": 5.3, "gi_category": "tinggi"},
@@ -247,118 +247,28 @@ FOOD_DATABASE = [
     {"name": "Biskuit Gandum",     "portion": "4 keping (30g)",  "calories": 130, "carbs_g": 20.0, "protein_g": 3.0,  "fat_g": 4.5,  "gi_category": "sedang"},
     {"name": "Kacang Tanah",       "portion": "1 genggam (30g)", "calories": 170, "carbs_g": 4.5,  "protein_g": 7.5,  "fat_g": 14.0, "gi_category": "rendah"},
     {"name": "Kuaci Biji Bunga Matahari", "portion": "1 kantong kecil (30g)", "calories": 165, "carbs_g": 6.0, "protein_g": 6.0, "fat_g": 14.0, "gi_category": "rendah"},
-    {"name": "Yogurt Tawar",       "portion": "1 cup (150g)",    "calories": 90,  "carbs_g": 12.0, "protein_g": 8.0,  "fat_g": 0.5,  "gi_category": "rendah"},
-    {"name": "Keripik Tempe", "portion": "1 genggam (30g)", "calories": 150, "carbs_g": 12.0, "protein_g": 4.0, "fat_g": 9.0, "gi_category": "sedang"}
+    {"name": "Yogurt Tawar",       "portion": "1 cup (150g)",    "calories": 90,  "carbs_g": 12.0, "protein_g": 8.0,  "fat_g": 0.5,  "gi_category": "rendah"}
 ]
 
-@router.get("/food-database")
-def get_food_database(
-    search: Optional[str] = Query(None, max_length=50),
-    current_user: User = Depends(get_current_user)
-):
-    # Validasi dan batasi panjang input pencarian untuk mencegah serangan DoS / Unchecked Input For Loop Condition
-    if search:
-        search_lower = search.lower().strip()
-        filtered = [f for f in FOOD_DATABASE if search_lower in f["name"].lower()]
-        return filtered[:50] # Batasi hasil maksimal 50 item
-    return FOOD_DATABASE[:100] # Batasi default maksimal 100 item
-
-@router.get("/entries")
-def get_diet_entries(
-    entry_date: Optional[date] = None,
-    limit: int = Query(default=30, ge=1, le=100), 
+@router.get("/history")
+def get_diet_history(
+    days: int = Query(default=7, ge=1, le=90),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
+    """
+    Mengambil riwayat diet pasien dengan validasi rentang hari yang aman 
+    untuk mencegah DoS atau unconstrained loop/range iteration (1 hingga 90 hari).
+    """
     patient = db.query(Patient).filter(Patient.user_id == current_user.id).first()
     if not patient:
         raise HTTPException(status_code=404, detail="Data pasien tidak ditemukan")
     
-    query = db.query(DietEntry).filter(DietEntry.patient_id == patient.id)
-    if entry_date:
-        query = query.filter(DietEntry.entry_date == entry_date)
+    start_date = date.today() - timedelta(days=days)
     
-    entries = query.order_by(desc(DietEntry.entry_date), desc(DietEntry.id)).limit(limit).all()
-    return entries
-
-@router.post("/entries", status_code=201)
-def create_diet_entry(
-    entry: DietEntryCreate,
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
-):
-    patient = db.query(Patient).filter(Patient.user_id == current_user.id).first()
-    if not patient:
-        raise HTTPException(status_code=404, detail="Data pasien tidak ditemukan")
-    
-    target_date = entry.entry_date if entry.entry_date else date.today()
-    
-    db_entry = DietEntry(
-        patient_id=patient.id,
-        entry_date=target_date,
-        meal_type=entry.meal_type,
-        food_name=entry.food_name,
-        portion=entry.portion,
-        calories=entry.calories,
-        carbs_g=entry.carbs_g,
-        protein_g=entry.protein_g,
-        fat_g=entry.fat_g,
-        gi_category=entry.gi_category,
-        notes=entry.notes
-    )
-    db.add(db_entry)
-    db.commit()
-    db.refresh(db_entry)
-    return db_entry
-
-@router.delete("/entries/{entry_id}")
-def delete_diet_entry(
-    entry_id: int,
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
-):
-    patient = db.query(Patient).filter(Patient.user_id == current_user.id).first()
-    if not patient:
-        raise HTTPException(status_code=404, detail="Data pasien tidak ditemukan")
-    
-    entry = db.query(DietEntry).filter(
-        DietEntry.id == entry_id,
-        DietEntry.patient_id == patient.id
-    ).first()
-    
-    if not entry:
-        raise HTTPException(status_code=404, detail="Catatan diet tidak ditemukan")
-    
-    db.delete(entry)
-    db.commit()
-    return {"message": "Catatan diet berhasil dihapus"}
-
-@router.get("/summary")
-def get_diet_summary(
-    target_date: Optional[date] = None,
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
-):
-    patient = db.query(Patient).filter(Patient.user_id == current_user.id).first()
-    if not patient:
-        raise HTTPException(status_code=404, detail="Data pasien tidak ditemukan")
-    
-    t_date = target_date if target_date else date.today()
     entries = db.query(DietEntry).filter(
         DietEntry.patient_id == patient.id,
-        DietEntry.entry_date == t_date
-    ).all()
+        DietEntry.entry_date >= start_date
+    ).order_by(desc(DietEntry.entry_date)).all()
     
-    total_calories = sum(e.calories for e in entries)
-    total_carbs = sum(e.carbs_g for e in entries if e.carbs_g)
-    total_protein = sum(e.protein_g for e in entries if e.protein_g)
-    total_fat = sum(e.fat_g for e in entries if e.fat_g)
-    
-    return {
-        "date": t_date,
-        "total_calories": total_calories,
-        "total_carbs_g": total_carbs,
-        "total_protein_g": total_protein,
-        "total_fat_g": total_fat,
-        "entries_count": len(entries)
-    }
+    return entries
