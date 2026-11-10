@@ -98,24 +98,16 @@ def _get_pregnancy_value(record, mode_kehamilan: bool) -> int:
 
 
 def _get_gdm_risk_boost(
-    glucose_used: float, mode_kehamilan: bool, mode_puasa: bool
+    glucose_used: float, mode_kehamilan: bool, mode_puasa: bool = False
 ) -> float:
     if not mode_kehamilan:
         return 0.0
-    if mode_puasa:
-        if glucose_used >= 126:
-            return 0.15
-        elif glucose_used >= 92:
-            return 0.08
-        else:
-            return 0.0
+    if glucose_used >= 126:
+        return 0.15
+    elif glucose_used >= 92:
+        return 0.08
     else:
-        if glucose_used >= 126:
-            return 0.15
-        elif glucose_used >= 92:
-            return 0.08
-        else:
-            return 0.0
+        return 0.0
 
 
 def _predict_model1(record) -> float:
