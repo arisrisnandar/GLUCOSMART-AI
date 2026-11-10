@@ -86,10 +86,11 @@ def _ensure_columns(db: Session):
         db.commit()
     except Exception as e:
         db.rollback()
-        print(f"[education] _ensure_columns: {e}")
+        # Logging internal saja tanpa membocorkan detail sensitif ke response HTTP
+        print(f"[education] _ensure_columns error: {e}")
 
 
-# ── Save upload (Aman dari Path Traversal, Unsafe Filename & File Size DoS) ───
+# ── Save upload (Aman dari Path Traversal, Filesystem Oracle & File Size DoS) ───
 def _save_upload(file: UploadFile, subfolder: str, base_url: str) -> str:
     base_folder = os.path.abspath(UPLOAD_DIR)
     folder = os.path.abspath(os.path.join(base_folder, subfolder))
@@ -106,30 +107,44 @@ def _save_upload(file: UploadFile, subfolder: str, base_url: str) -> str:
     filename = f"{uuid.uuid4().hex}{raw_ext}"
     dest = os.path.abspath(os.path.join(folder, filename))
 
-    # Validasi Path Traversal tingkat lanjut: Pastikan destinasi absolut benar-benar berada di dalam folder tujuan
+    # Validasi Path Traversal & Pencegahan Filesystem Oracle (pesan error digenerikkan)
     try:
         common = os.path.commonpath([folder, dest])
         if common != folder:
-            raise HTTPException(status_code=400, detail="Path file tidak valid (Path Traversal terdeteksi)")
+            raise HTTPException(status_code=400, detail="Gagal memproses file yang diunggah")
+    except HTTPException:
+        raise
     except Exception:
-        raise HTTPException(status_code=400, detail="Path file tidak valid")
+        raise HTTPException(status_code=400, detail="Gagal memproses file yang diunggah")
 
     MAX_FILE_SIZE = 10 * 1024 * 1024  # Batas maksimal file 10MB
     total_size = 0
-    with open(dest, "wb") as f:
-        while True:
-            chunk = file.file.read(1024 * 64)
-            if not chunk:
-                break
-            total_size += len(chunk)
-            if total_size > MAX_FILE_SIZE:
-                f.close()
-                if os.path.exists(dest):
-                    os.remove(dest)
-                raise HTTPException(status_code=400, detail="Ukuran file melebihi batas maksimal 10MB")
-            f.write(chunk)
+    
+    try:
+        with open(dest, "wb") as f:
+            while True:
+                chunk = file.file.read(1024 * 64)
+                if not chunk:
+                    break
+                total_size += len(chunk)
+                if total_size > MAX_FILE_SIZE:
+                    f.close()
+                    if os.path.exists(dest):
+                        os.remove(dest)
+                    raise HTTPException(status_code=400, detail="Ukuran file melebihi batas maksimal 10MB")
+                f.write(chunk)
+    except HTTPException:
+        raise
+    except Exception:
+        # Menghindari Filesystem Oracle dengan tidak mengekspos detail error I/O sistem file
+        if os.path.exists(dest):
+            try:
+                os.remove(dest)
+            except Exception:
+                pass
+        raise HTTPException(status_code=500, detail="Terjadi kesalahan internal saat menyimpan file")
 
-    print(f"[education] saved → {dest} ({total_size} bytes)")
+    print(f"[education] saved successfully")
     return f"{base_url}/static/education/{subfolder}/{filename}"
 
 
@@ -200,9 +215,9 @@ async def _fetch_gnews(query: str, lang: str = "id", max_results: int = 5) -> li
             if resp.status_code == 200:
                 return resp.json().get("articles", [])
             else:
-                print(f"[education/news] GNews HTTP {resp.status_code}: {resp.text[:200]}")
+                print(f"[education/news] GNews HTTP {resp.status_code}")
     except Exception as e:
-        print(f"[education/news] GNews fetch error ({query}): {e}")
+        print(f"[education/news] GNews fetch error: {type(e).__name__}")
     return []
 
 
