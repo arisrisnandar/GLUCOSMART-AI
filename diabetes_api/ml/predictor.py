@@ -62,31 +62,34 @@ def _normalize_glucose(
     └─────────────────┴──────────────┴─────────────────────┴──────────────────────┘
     """
     if blood_glucose is None:
-        return 120.0, "Tidak ada data gula darah, pakai default 120"
+        return 120.0, "Tidak ada data gula darah, pakai nilai default 120 mg/dL"
 
     raw = float(blood_glucose)
 
+    # 1. Puasa & Kehamilan (GDM Screening)
     if mode_puasa and mode_kehamilan:
-        note = f"Gula darah puasa ibu hamil: {raw} mg/dL (normal <92, GDM ≥92)"
+        note = f"Gula darah puasa ibu hamil: {raw} mg/dL (Target normal <92, Kategori GDM ≥92)"
         return raw, note
 
+    # 2. Puasa Tanpa Kehamilan (Puasa Umum)
     elif mode_puasa and not mode_kehamilan:
-        note = f"Gula darah puasa: {raw} mg/dL (normal 70–100)"
+        note = f"Gula darah puasa standar: {raw} mg/dL (Target normal 70–100, Diabetes ≥126)"
         return raw, note
 
+    # 3. Sewaktu & Kehamilan (Konversi GDM Sewaktu ke Estimasi Puasa)
     elif not mode_puasa and mode_kehamilan:
         converted = raw * 0.70
         converted = max(50.0, min(400.0, converted))
         note = (f"Gula darah sewaktu ibu hamil: {raw} mg/dL "
-                f"→ estimasi puasa: {converted:.1f} mg/dL (×0.70)")
+                f"→ estimasi puasa ekuivalen: {converted:.1f} mg/dL (faktor konversi ×0.70)")
         return converted, note
 
+    # 4. Sewaktu Tanpa Kehamilan (Sewaktu Umum)
     else:
-        # Sewaktu biasa: faktor koreksi 0.75
         converted = raw * 0.75
         converted = max(50.0, min(400.0, converted))
-        note = (f"Gula darah sewaktu: {raw} mg/dL "
-                f"→ estimasi puasa: {converted:.1f} mg/dL (×0.75)")
+        note = (f"Gula darah sewaktu standar: {raw} mg/dL "
+                f"→ estimasi puasa ekuivalen: {converted:.1f} mg/dL (faktor konversi ×0.75)")
         return converted, note
 
 
@@ -112,27 +115,27 @@ def _get_gdm_risk_boost(
 
 def _predict_model1(record) -> float:
     data = {
-        "HighBP":               int(record.high_bp or 0),
-        "HighChol":             int(record.high_chol or 0),
-        "CholCheck":            int(record.chol_check or 0),
-        "BMI":                  float(record.bmi or 25),
-        "Smoker":               int(record.smoker or 0),
-        "Stroke":               int(record.stroke or 0),
+        "HighBP":             int(record.high_bp or 0),
+        "HighChol":           int(record.high_chol or 0),
+        "CholCheck":          int(record.chol_check or 0),
+        "BMI":                float(record.bmi or 25),
+        "Smoker":             int(record.smoker or 0),
+        "Stroke":             int(record.stroke or 0),
         "HeartDiseaseorAttack": int(record.heart_disease_attack or 0),
-        "PhysActivity":         int(record.phys_activity or 0),
-        "Fruits":               int(record.fruits or 0),
-        "Veggies":              int(record.veggies or 0),
-        "HvyAlcoholConsump":    int(record.hvy_alcohol_consump or 0),
-        "AnyHealthcare":        int(record.any_healthcare or 1),
-        "NoDocbcCost":          int(record.no_doc_bc_cost or 0),
-        "GenHlth":              int(record.gen_hlth or 3),
-        "MentHlth":             int(record.ment_hlth or 0),
-        "PhysHlth":             int(record.phys_hlth or 0),
-        "DiffWalk":             int(record.diff_walk or 0),
-        "Sex":                  int(record.sex or 0),
-        "Age":                  int(record.age or 5),
-        "Education":            int(record.education or 4),
-        "Income":               int(record.income or 4),
+        "PhysActivity":       int(record.phys_activity or 0),
+        "Fruits":             int(record.fruits or 0),
+        "Veggies":            int(record.veggies or 0),
+        "HvyAlcoholConsump":   int(record.hvy_alcohol_consump or 0),
+        "AnyHealthcare":      int(record.any_healthcare or 1),
+        "NoDocbcCost":        int(record.no_doc_bc_cost or 0),
+        "GenHlth":            int(record.gen_hlth or 3),
+        "MentHlth":           int(record.ment_hlth or 0),
+        "PhysHlth":           int(record.phys_hlth or 0),
+        "DiffWalk":           int(record.diff_walk or 0),
+        "Sex":                int(record.sex or 0),
+        "Age":                int(record.age or 5),
+        "Education":          int(record.education or 4),
+        "Income":             int(record.income or 4),
     }
     df = pd.DataFrame([data])[FEATURES_MODEL1]
     scaled = _s1.transform(df)
@@ -181,7 +184,7 @@ def predict_from_health_record(
 ) -> dict:
     _load_models()
 
-    prob_m1                          = _predict_model1(record)
+    prob_m1                     = _predict_model1(record)
     prob_m2_raw, glucose_used, glucose_note = _predict_model2(
         record, mode_puasa, mode_kehamilan
     )
@@ -194,10 +197,6 @@ def predict_from_health_record(
     predicted = int(prob_combined >= threshold)
     label     = "Diabetes" if predicted == 1 else "No Diabetes"
 
-    # ── FIX: threshold disesuaikan agar lebih sensitif ────────────────────
-    # Tinggi  : prob ≥ 0.60  (diturunkan dari 0.70)
-    # Sedang  : prob ≥ 0.30  (diturunkan dari 0.40)
-    # Rendah  : prob < 0.30
     if prob_combined >= 0.60:
         risk_level = "Tinggi"
         risk_color = "red"
@@ -208,14 +207,11 @@ def predict_from_health_record(
         risk_level = "Rendah"
         risk_color = "green"
 
-    # Label khusus ibu hamil
     if mode_kehamilan and prob_combined >= 0.30:
         risk_level = f"{risk_level} (Risiko GDM)"
 
-    # ── FIX: is_high_risk konsisten dengan risk_level ─────────────────────
     is_high_risk = prob_combined >= 0.60
 
-    # Debug log
     print(f"[predictor] prob_m1={prob_m1:.4f} prob_m2_raw={prob_m2_raw:.4f} "
           f"gdm_boost={gdm_boost:.4f} prob_m2={prob_m2:.4f} "
           f"prob_combined={prob_combined:.4f} risk_level={risk_level}")
