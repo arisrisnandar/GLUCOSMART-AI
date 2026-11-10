@@ -12,10 +12,16 @@
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher"
         
+        <!-- 
+            PERBAIKAN KEAMANAN BACKUP:
+            1. allowBackup="false" (Mematikan backup otomatis secara global)
+            2. fullBackupContent (Untuk Android < 12, menunjuk ke file XML kustom)
+            3. dataExtractionRules (Untuk Android 12+, menunjuk ke file XML kustom)
+            4. hasFragileUserData dihapus karena tidak relevan untuk aplikasi non-sistem.
+        -->
         android:allowBackup="false"
-        android:fullBackupContent="false"
+        android:fullBackupContent="@xml/backup_rules"
         android:dataExtractionRules="@xml/data_extraction_rules"
-        android:hasFragileUserData="false"
         
         android:usesCleartextTraffic="false"
         android:networkSecurityConfig="@xml/network_security_config"
