@@ -142,19 +142,22 @@ def _save_upload(file: UploadFile, subfolder: str, base_url: str) -> str:
                 if total_size > MAX_FILE_SIZE:
                     f.close()
                     if os.path.exists(dest):
-                        os.remove(dest)
-                    raise HTTPException(status_code=400, detail="Ukuran file melebihi batas maksimal 10MB")
+                        try:
+                            os.remove(dest)
+                        except Exception:
+                            pass
+                    raise HTTPException(status_code=400, detail="Gagal memproses file yang diunggah")
                 f.write(chunk)
     except HTTPException:
         raise
     except Exception:
-        # Menghindari Filesystem Oracle dengan tidak mengekspos detail error I/O sistem file
+        # Menghindari Filesystem Oracle dengan menyeragamkan respons error internal
         if os.path.exists(dest):
             try:
                 os.remove(dest)
             except Exception:
                 pass
-        raise HTTPException(status_code=500, detail="Terjadi kesalahan internal saat menyimpan file")
+        raise HTTPException(status_code=500, detail="Gagal memproses file yang diunggah")
 
     print(f"[education] saved successfully")
     return f"{base_url}/static/education/{safe_subfolder}/{filename}"
