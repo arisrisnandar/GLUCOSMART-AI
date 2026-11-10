@@ -6,16 +6,26 @@ from database import get_db
 from models.db_models import EducationContent, User, Notification
 from routers.auth import get_current_user
 from firebase_service import send_push_multi
-import os, shutil, uuid, asyncio, httpx
+import os
+import shutil
+import uuid
+import asyncio
+import httpx
 from datetime import datetime, timedelta, timezone
 from urllib.parse import urlparse
 import re
+from pathlib import Path
 
 router = APIRouter()
 
-UPLOAD_DIR = "static/education"
-os.makedirs(f"{UPLOAD_DIR}/posters", exist_ok=True)
-os.makedirs(f"{UPLOAD_DIR}/pdfs", exist_ok=True)
+# ── Konfigurasi Direktori & Keamanan ──────────────────────────────────────────
+BASE_UPLOAD_DIR = Path("static/education").resolve()
+ALLOWED_SUBFOLDERS = {"posters", "pdfs"}
+ALLOWED_EXTENSIONS = {".jpg", ".jpeg", ".png", ".pdf", ".mp4", ".webp"}
+MAX_FILE_SIZE = 10 * 1024 * 1024  # 10MB
+
+# Pastikan direktori dasar ada
+BASE_UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
 BASE_URL = os.getenv("BASE_URL", "").rstrip("/")
 
@@ -92,46 +102,36 @@ def _ensure_columns(db: Session):
 
 # ── Save upload (Aman dari Path Traversal, Filesystem Oracle & File Size DoS) ───
 def _save_upload(file: UploadFile, subfolder: str, base_url: str) -> str:
-    base_folder = os.path.abspath(UPLOAD_DIR)
-    
-    # Amankan subfolder dari potensi Path Traversal
-    safe_subfolder = os.path.basename(subfolder)
-    folder = os.path.abspath(os.path.join(base_folder, safe_subfolder))
-    
-    try:
-        if os.path.commonpath([base_folder, folder]) != base_folder:
-            raise HTTPException(status_code=400, detail="Gagal memproses file yang diunggah")
-    except HTTPException:
-        raise
-    except Exception:
+    # 1. Validasi subfolder menggunakan WHITELIST (Mencegah input arbitrary string)
+    if subfolder not in ALLOWED_SUBFOLDERS:
         raise HTTPException(status_code=400, detail="Gagal memproses file yang diunggah")
 
-    os.makedirs(folder, exist_ok=True)
-    
-    # Amankan filename dari path traversal dengan mengambil base name saja
+    # 2. Amankan nama file asli dan ekstensi
     safe_filename = os.path.basename(file.filename or "")
     raw_ext = os.path.splitext(safe_filename)[1].lower()
     
-    allowed_extensions = {".jpg", ".jpeg", ".png", ".pdf", ".mp4", ".webp"}
-    if raw_ext not in allowed_extensions:
+    if raw_ext not in ALLOWED_EXTENSIONS:
         raise HTTPException(status_code=400, detail="Format atau ekstensi file tidak diizinkan")
-    
-    filename = f"{uuid.uuid4().hex}{raw_ext}"
-    dest = os.path.abspath(os.path.join(folder, filename))
 
-    # Validasi Path Traversal tingkat lanjut & Pencegahan Filesystem Oracle
+    # 3. Buat path tujuan menggunakan pathlib
+    folder = BASE_UPLOAD_DIR / subfolder
+    filename = f"{uuid.uuid4().hex}{raw_ext}"
+    dest = folder / filename
+
+    # 4. Validasi Path Traversal dengan resolusi path
     try:
-        common = os.path.commonpath([folder, dest])
-        if common != folder:
+        # resolve() akan menyelesaikan symlink dan '..'
+        # pastikan folder tujuan berada di dalam BASE_UPLOAD_DIR
+        if not dest.resolve().is_relative_to(BASE_UPLOAD_DIR):
             raise HTTPException(status_code=400, detail="Gagal memproses file yang diunggah")
-    except HTTPException:
-        raise
-    except Exception:
+    except ValueError:
         raise HTTPException(status_code=400, detail="Gagal memproses file yang diunggah")
 
-    MAX_FILE_SIZE = 10 * 1024 * 1024  # Batas maksimal file 10MB
+    # 5. Buat direktori jika belum ada
+    folder.mkdir(parents=True, exist_ok=True)
+
+    # 6. Simpan file dengan batasan ukuran (Mencegah DoS)
     total_size = 0
-    
     try:
         with open(dest, "wb") as f:
             while True:
@@ -140,27 +140,21 @@ def _save_upload(file: UploadFile, subfolder: str, base_url: str) -> str:
                     break
                 total_size += len(chunk)
                 if total_size > MAX_FILE_SIZE:
-                    f.close()
-                    if os.path.exists(dest):
-                        try:
-                            os.remove(dest)
-                        except Exception:
-                            pass
                     raise HTTPException(status_code=400, detail="Gagal memproses file yang diunggah")
                 f.write(chunk)
     except HTTPException:
+        # Hapus file parsial jika ada error
+        if dest.exists():
+            dest.unlink(missing_ok=True)
         raise
     except Exception:
-        # Menghindari Filesystem Oracle dengan menyeragamkan respons error internal
-        if os.path.exists(dest):
-            try:
-                os.remove(dest)
-            except Exception:
-                pass
+        if dest.exists():
+            dest.unlink(missing_ok=True)
+        # Hindari Filesystem Oracle dengan menyeragamkan respons error internal
         raise HTTPException(status_code=500, detail="Gagal memproses file yang diunggah")
 
     print(f"[education] saved successfully")
-    return f"{base_url}/static/education/{safe_subfolder}/{filename}"
+    return f"{base_url}/static/education/{subfolder}/{filename}"
 
 
 # ── Notify async ──────────────────────────────────────────────────────────────
@@ -490,3 +484,8 @@ async def update_education(
     object.__setattr__(obj, "content_type", content_type)
     object.__setattr__(obj, "media_url", new_media_url)
     db.commit()
+    db.refresh(obj)
+
+    # Opsional: Notify jika diperlukan saat update (bisa disesuaikan)
+    
+    return _to_dict(obj)
