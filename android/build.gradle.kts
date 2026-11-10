@@ -1,24 +1,6 @@
-// Mendefinisikan plugin di level root
+// Mendefinisikan plugin di level root menggunakan Version Catalog
 plugins {
-    id("com.google.gms.google-services") version "4.4.2" apply false
-}
-
-allprojects {
-    repositories {
-        google()
-        mavenCentral()
-    }
-    
-    // Konfigurasi Dependency Locking untuk keamanan dan prediktabilitas versi
-    configurations.all {
-        resolutionStrategy.dependencyLocking {
-            // Kunci semua konfigurasi yang dapat di-resolve (termasuk transitive dependencies)
-            lockAllConfigurations()
-            
-            // (OPSIONAL) Jika Anda ingin mengabaikan beberapa konfigurasi spesifik dari penguncian
-            // ignoredConfigurations.addAll(listOf("lintChecks", "lintPublish"))
-        }
-    }
+    alias(libs.plugins.google.services) apply false
 }
 
 // Mengatur direktori build kustom untuk proyek root
@@ -36,6 +18,14 @@ subprojects {
 
 subprojects {
     project.evaluationDependsOn(":app")
+    
+    // Konfigurasi Dependency Locking untuk keamanan dan prediktabilitas versi
+    configurations.all {
+        resolutionStrategy.dependencyLocking {
+            // Kunci semua konfigurasi
+            lockAllConfigurations()
+        }
+    }
 }
 
 // Task untuk membersihkan direktori build
