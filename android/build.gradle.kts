@@ -1,10 +1,18 @@
 plugins {
     id("com.google.gms.google-services") apply false  // ← TAMBAH
 }
+
 allprojects {
     repositories {
         google()
         mavenCentral()
+    }
+    
+    // Mengaktifkan dependency locking untuk memastikan versi dependensi konsisten dan dapat diprediksi
+    configurations.all {
+        resolutionStrategy.dependencyLocking {
+            lockAllConfigurations()
+        }
     }
 }
 
