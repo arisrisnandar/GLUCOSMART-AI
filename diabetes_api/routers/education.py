@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, Query
 from sqlalchemy.orm import Session
 from sqlalchemy import text, inspect
 from typing import Optional
@@ -8,6 +8,7 @@ from routers.auth import get_current_user
 from firebase_service import send_push_multi
 import os, shutil, uuid, asyncio, httpx
 from datetime import datetime, timedelta
+from urllib.parse import urlparse
 import re
 
 router = APIRouter()
@@ -19,8 +20,8 @@ os.makedirs(f"{UPLOAD_DIR}/pdfs", exist_ok=True)
 BASE_URL = os.getenv("BASE_URL", "").rstrip("/")
 
 # ── News cache & config ───────────────────────────────────────────────────────
-# Cache di-refresh otomatis setiap 3 jam agar tidak boros quota GNews (100 req/hari gratis)
 _news_cache: dict = {"data": [], "fetched_at": None}
+_news_lock = asyncio.Lock()
 GNEWS_API_KEY = os.getenv("GNEWS_API_KEY", "")  # Daftar di https://gnews.io
 
 _GNEWS_QUERIES = [
@@ -58,7 +59,18 @@ _AUTO_CATEGORY_KEYWORDS = {
 }
 
 
-# ── Ensure kolom (Aman dari Text Injection) ───────────────────────────────────
+def _is_safe_url(url: Optional[str]) -> bool:
+    """Validasi agar URL hanya menggunakan skema http atau https yang aman."""
+    if not url:
+        return True
+    try:
+        parsed = urlparse(url)
+        return parsed.scheme in ("http", "https")
+    except Exception:
+        return False
+
+
+# ── Ensure kolom ──────────────────────────────────────────────────────────────
 def _ensure_columns(db: Session):
     try:
         inspector = inspect(db.bind)
@@ -77,25 +89,34 @@ def _ensure_columns(db: Session):
         print(f"[education] _ensure_columns: {e}")
 
 
-# ── Save upload (Aman dari Path Traversal & Unsafe Filename) ───────────────────
+# ── Save upload (Aman dari Path Traversal, Unsafe Filename & File Size DoS) ───
 def _save_upload(file: UploadFile, subfolder: str, base_url: str) -> str:
     folder = os.path.join(UPLOAD_DIR, subfolder)
     os.makedirs(folder, exist_ok=True)
     
-    # Validasi ekstensi aman untuk mencegah eksekusi file berbahaya
     raw_ext = os.path.splitext(file.filename or "")[1].lower()
     allowed_extensions = {".jpg", ".jpeg", ".png", ".pdf", ".mp4", ".webp"}
     ext = raw_ext if raw_ext in allowed_extensions else (".jpg" if subfolder == "posters" else ".pdf")
     
-    # Menggunakan UUID murni untuk nama file
     filename = f"{uuid.uuid4().hex}{ext}"
     dest = os.path.join(folder, filename)
 
+    MAX_FILE_SIZE = 10 * 1024 * 1024  # Batas maksimal file 10MB
+    total_size = 0
     with open(dest, "wb") as f:
-        shutil.copyfileobj(file.file, f)
+        while True:
+            chunk = file.file.read(1024 * 64)
+            if not chunk:
+                break
+            total_size += len(chunk)
+            if total_size > MAX_FILE_SIZE:
+                f.close()
+                if os.path.exists(dest):
+                    os.remove(dest)
+                raise HTTPException(status_code=400, detail="Ukuran file melebihi batas maksimal 10MB")
+            f.write(chunk)
 
-    size = os.path.getsize(dest)
-    print(f"[education] saved → {dest} ({size} bytes)")
+    print(f"[education] saved → {dest} ({total_size} bytes)")
     return f"{base_url}/static/education/{subfolder}/{filename}"
 
 
@@ -138,7 +159,6 @@ def _to_dict(a: EducationContent) -> dict:
     }
 
 
-# ── Helper: tebak kategori dari teks ─────────────────────────────────────────
 def _guess_category(text: str) -> str:
     text_lower = text.lower()
     for cat, keywords in _AUTO_CATEGORY_KEYWORDS.items():
@@ -147,7 +167,6 @@ def _guess_category(text: str) -> str:
     return "Tentang Diabetes"
 
 
-# ── Helper: fetch dari GNews API ──────────────────────────────────────────────
 async def _fetch_gnews(query: str, lang: str = "id", max_results: int = 5) -> list:
     if not GNEWS_API_KEY:
         print("[education/news] GNEWS_API_KEY tidak diset, skip fetch")
@@ -174,19 +193,21 @@ async def _fetch_gnews(query: str, lang: str = "id", max_results: int = 5) -> li
     return []
 
 
-# ── Helper: normalisasi artikel GNews → format standar ───────────────────────
 def _normalize_gnews(articles: list) -> list:
     result = []
     seen_urls = set()
     for a in articles:
         url = a.get("url", "")
-        if not url or url in seen_urls:
+        if not url or url in seen_urls or not _is_safe_url(url):
             continue
         seen_urls.add(url)
 
         title       = a.get("title", "").strip()
         description = a.get("description", "").strip()
         image       = a.get("image", None)
+        if image and not _is_safe_url(image):
+            image = None
+
         published_raw = a.get("publishedAt", "")
         source_name = a.get("source", {}).get("name", "")
 
@@ -217,7 +238,6 @@ def _normalize_gnews(articles: list) -> list:
 # ROUTES
 # ══════════════════════════════════════════════════════════════════════════════
 
-# ── 1. Seed ───────────────────────────────────────────────────────────────────
 @router.post("/seed/init", status_code=201)
 def seed_education(
     current_user: User = Depends(get_current_user),
@@ -244,7 +264,6 @@ def seed_education(
     return {"message": "Seed berhasil"}
 
 
-# ── 2. Categories ─────────────────────────────────────────────────────────────
 @router.get("/categories")
 def get_categories(
     current_user: User = Depends(get_current_user),
@@ -262,7 +281,6 @@ def get_categories(
     return [r[0] for r in rows if r[0]]
 
 
-# ── 3. News Feed ──────────────────────────────────────────────────────────────
 @router.get("/news/feed")
 async def get_news_feed(
     refresh: bool = False,
@@ -271,14 +289,15 @@ async def get_news_feed(
     global _news_cache
     now = datetime.utcnow()
     
-    cache_valid = (
-        not refresh
-        and _news_cache["fetched_at"] is not None
-        and (now - _news_cache["fetched_at"]) < timedelta(hours=3)
-        and _news_cache["data"]
-    )
-    if cache_valid:
-        return _news_cache["data"]
+    async with _news_lock:
+        cache_valid = (
+            not refresh
+            and _news_cache["fetched_at"] is not None
+            and (now - _news_cache["fetched_at"]) < timedelta(hours=3)
+            and _news_cache["data"]
+        )
+        if cache_valid:
+            return _news_cache["data"]
 
     tasks = [_fetch_gnews(q, max_results=4) for q in _GNEWS_QUERIES]
     results = await asyncio.gather(*tasks, return_exceptions=True)
@@ -296,13 +315,13 @@ async def get_news_feed(
             seen_titles.add(key)
             deduped.append(art)
 
-    _news_cache["data"] = deduped[:30]
-    _news_cache["fetched_at"] = now
+    async with _news_lock:
+        _news_cache["data"] = deduped[:30]
+        _news_cache["fetched_at"] = now
 
     return _news_cache["data"]
 
 
-# ── 4. News Sources Info ──────────────────────────────────────────────────────
 @router.get("/news/sources")
 def get_news_sources(current_user: User = Depends(get_current_user)):
     return {
@@ -320,11 +339,12 @@ def get_news_sources(current_user: User = Depends(get_current_user)):
     }
 
 
-# ── 5. List semua konten manual ───────────────────────────────────────────────
 @router.get("/")
 def list_education(
-    category: Optional[str] = None,
-    content_type: Optional[str] = None,
+    category: Optional[str] = Query(None, max_length=100),
+    content_type: Optional[str] = Query(None, max_length=20),
+    limit: int = Query(default=50, ge=1, le=100),
+    offset: int = Query(default=0, ge=0),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -335,24 +355,27 @@ def list_education(
     if content_type:
         q = q.filter(EducationContent.content_type == content_type)
     q = q.filter(EducationContent.target_role.in_(["all", current_user.role]))
-    return [_to_dict(a) for a in q.order_by(EducationContent.created_at.desc()).all()]
+    rows = q.order_by(EducationContent.created_at.desc()).offset(offset).limit(limit).all()
+    return [_to_dict(a) for a in rows]
 
 
-# ── 6. Create ─────────────────────────────────────────────────────────────────
 @router.post("/", status_code=201)
 async def create_education(
-    title:        str                  = Form(...),
-    category:     str                  = Form(...),
-    content_type: str                  = Form(...),
-    content:      str                  = Form(""),
-    target_role:  str                  = Form("all"),
-    media_url:    Optional[str]        = Form(None),
+    title:        str                  = Form(..., max_length=200),
+    category:     str                  = Form(..., max_length=100),
+    content_type: str                  = Form(..., max_length=20),
+    content:      str                  = Form("", max_length=10000),
+    target_role:  str                  = Form("all", max_length=50),
+    media_url:    Optional[str]        = Form(None, max_length=500),
     file:         Optional[UploadFile] = File(None),
     current_user: User                 = Depends(get_current_user),
     db:           Session              = Depends(get_db),
 ):
     if current_user.role not in ("admin", "dokter"):
         raise HTTPException(403, "Hanya admin atau dokter")
+    if media_url and not _is_safe_url(media_url):
+        raise HTTPException(400, "URL media tidak valid (harus http/https)")
+        
     _ensure_columns(db)
     base_url = BASE_URL or "https://gawk-mourner-dance.ngrok-free.dev"
     saved_url = None
@@ -361,6 +384,7 @@ async def create_education(
     elif content_type in ("poster", "pdf") and file and file.filename:
         subfolder = "posters" if content_type == "poster" else "pdfs"
         saved_url = _save_upload(file, subfolder, base_url)
+        
     obj = EducationContent(
         title=title, category=category,
         content=content, target_role=target_role, is_active=True,
@@ -371,6 +395,7 @@ async def create_education(
     db.add(obj)
     db.commit()
     db.refresh(obj)
+    
     label = {"article": "Artikel", "poster": "Poster", "video": "Video",
              "pdf": "Dokumen PDF"}.get(content_type, "Konten")
     await _notify(
@@ -382,22 +407,24 @@ async def create_education(
     return _to_dict(obj)
 
 
-# ── 7. Update by ID ───────────────────────────────────────────────────────────
 @router.put("/{article_id}", status_code=200)
 async def update_education(
     article_id:   int,
-    title:        str                  = Form(...),
-    category:     str                  = Form(...),
-    content_type: str                  = Form(...),
-    content:      str                  = Form(""),
-    target_role:  str                  = Form("all"),
-    media_url:    Optional[str]        = Form(None),
+    title:        str                  = Form(..., max_length=200),
+    category:     str                  = Form(..., max_length=100),
+    content_type: str                  = Form(..., max_length=20),
+    content:      str                  = Form("", max_length=10000),
+    target_role:  str                  = Form("all", max_length=50),
+    media_url:    Optional[str]        = Form(None, max_length=500),
     file:         Optional[UploadFile] = File(None),
     current_user: User                 = Depends(get_current_user),
     db:           Session              = Depends(get_db),
 ):
     if current_user.role not in ("admin", "dokter"):
         raise HTTPException(403, "Tidak memiliki akses")
+    if media_url and not _is_safe_url(media_url):
+        raise HTTPException(400, "URL media tidak valid (harus http/https)")
+        
     _ensure_columns(db)
     obj = db.query(EducationContent).filter(
         EducationContent.id == article_id
@@ -424,7 +451,6 @@ async def update_education(
     return _to_dict(obj)
 
 
-# ── 8. Delete by ID ───────────────────────────────────────────────────────────
 @router.delete("/{article_id}", status_code=200)
 def delete_education(
     article_id:   int,
@@ -444,7 +470,6 @@ def delete_education(
     return {"message": "Konten dinonaktifkan"}
 
 
-# ── 9. Get by ID ──────────────────────────────────────────────────────────────
 @router.get("/{article_id}")
 def get_education(
     article_id:   int,
